@@ -19,8 +19,10 @@ namespace RemoteDesktop.Client
 {
     public partial class frmRemote : Form
     {
-        // KHAI BÁO TẠI ĐÂY: Biến toàn cục trong Form
+        // Biến toàn cục trong Form
         private ClientHandler _client;
+
+
 
         public frmRemote(ClientHandler client)
         {
@@ -32,6 +34,65 @@ namespace RemoteDesktop.Client
                 MessageBox.Show("CẢNH BÁO: Đối tượng kết nối bị null hoặc chưa kết nối!");
             }
         }
+        //
+        //
+        //REMOTE SERVER
+        //
+        //
+        // Gửi tọa độ chuột khi di chuyển trên PictureBox
+        private void picScreen_MouseMove(object sender, MouseEventArgs e)
+        {
+            SendInput(0, 0, e.X, e.Y, 0); // Type 0: Mouse, Action 0: Move
+        }
+
+        // Gửi lệnh nhấn chuột trái
+        private void picScreen_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                SendInput(0, 1, e.X, e.Y, 0); // Action 1: LeftDown
+            }
+        }
+
+        // Gửi lệnh thả chuột trái
+        private void picScreen_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                SendInput(0, 2, e.X, e.Y, 0); // Action 2: LeftUp
+            }
+        }
+
+        private void SendInput(int type, int action, int x, int y, int keyCode)
+        {
+            // Tính toán tỷ lệ dựa trên kích thước thực tế của picScreen
+            float percentX = (float)x / picScreen.Width;
+            float percentY = (float)y / picScreen.Height;
+
+            var input = new InputDTO
+            {
+                Type = type,
+                Action = action,
+                // Nhân với 1000 để gửi tỷ lệ phần nghìn (tránh mất dữ liệu khi ép kiểu int)
+                X = (int)(percentX * 1000),
+                Y = (int)(percentY * 1000),
+                KeyCode = keyCode
+            };
+
+            var packet = new Packet
+            {
+                Type = RemoteDesktop.Common.Models.CommandType.InputControl,
+                Data = DataHelper.Serialize(input)
+            };
+
+            // Gửi gói tin qua ClientHandler
+            if (_client != null && _client.IsConnected)
+            {
+                _client.SendPacket(packet);
+            }
+        }
+
+
 
         private void frmRemote_Load(object sender, EventArgs e)
         {
@@ -99,20 +160,18 @@ namespace RemoteDesktop.Client
         {
             try
             {
-                var fileDto = DataHelper.Deserialize<RemoteDesktop.Common.DTOs.FilePacketDTO>(rawData);
+                var fileDto = DataHelper.Deserialize<FilePacketDTO>(rawData);
                 if (fileDto != null)
                 {
-                    // Lưu vào thư mục Downloads của máy Client
-                    string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileDto.FileName);
+                    // Đường dẫn tới thư mục Downloads
+                    string downloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileDto.FileName);
 
-                    File.WriteAllBytes(path, fileDto.Buffer);
+                    File.WriteAllBytes(downloadPath, fileDto.Buffer);
 
-                    AppendChatHistory($"[Hệ thống]: Đã nhận file '{fileDto.FileName}' và lưu tại thư mục Downloads.");
-                    MessageBox.Show($"Bạn đã nhận được file: {fileDto.FileName}", "Thông báo");
-                    path = Path.Combine(Application.StartupPath, "ReceivedFiles");
-                    Process.Start("explorer.exe", path); // Thư mục sẽ tự bật lên khi file tải xong
+                    AppendChatHistory($"[Hệ thống]: Đã nhận file '{fileDto.FileName}' thành công.");
+                    MessageBox.Show($"File đã được tải về: {fileDto.FileName}", "Thông báo");
+                    Process.Start("explorer.exe", Path.GetDirectoryName(downloadPath));
                 }
-
             }
             catch (Exception ex)
             {
@@ -128,10 +187,16 @@ namespace RemoteDesktop.Client
             }
             else
             {
-                using (MemoryStream ms = new MemoryStream(data))
+                try
                 {
-                    picScreen.Image = Image.FromStream(ms);
+                    using (MemoryStream ms = new MemoryStream(data))
+                    {
+                        // Xóa ảnh cũ để giải phóng bộ nhớ trước khi gán ảnh mới
+                        if (picScreen.Image != null) picScreen.Image.Dispose();
+                        picScreen.Image = Image.FromStream(ms);
+                    }
                 }
+                catch { /* Xử lý lỗi giải mã ảnh nếu cần */ }
             }
         }
 
@@ -179,25 +244,19 @@ namespace RemoteDesktop.Client
                 {
                     try
                     {
-
-                        // 1. Đóng gói dữ liệu file
                         var fileDto = new FilePacketDTO
                         {
                             FileName = Path.GetFileName(ofd.FileName),
                             Buffer = File.ReadAllBytes(ofd.FileName)
                         };
 
-                        // 2. Tạo Packet
                         var packet = new Packet
                         {
                             Type = MyCommand.FileTransfer,
                             Data = DataHelper.Serialize(fileDto)
                         };
 
-                        // 3. Gửi
-                        _client.SendPacket(packet);
-
-                        AppendChatHistory($"[Hệ thống]: Đang gửi file '{fileDto.FileName}'...");
+                        _client.SendPacket(packet); // Gửi tới Server
                     }
                     catch (Exception ex)
                     {

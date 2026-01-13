@@ -2,6 +2,7 @@
 using RemoteDesktop.Common.Helpers;
 using RemoteDesktop.Common.Models;
 using RemoteDesktop.Common.Security;
+using RemoteDesktop.Server.Helpers;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -139,6 +140,11 @@ namespace RemoteDesktop.Server.Networking
                 case CommandType.Disconnect:
                     client.Close();
                     break;
+                case CommandType.InputControl:
+                    HandleInputControl(packet);
+                    break;
+                
+
 
                 default:
                     LogToUI($"Nhận loại gói tin không xác định: {packet.Type}");
@@ -147,6 +153,30 @@ namespace RemoteDesktop.Server.Networking
         }
 
         // --- CÁC HÀM XỬ LÝ LOGIC CHI TIẾT ---
+
+        private void HandleInputControl(Packet packet)
+        {
+            var input = DataHelper.Deserialize<InputDTO>(packet.Data);
+            if (input == null) return;
+
+            // Lấy độ phân giải thực của màn hình Server hiện tại
+            int sw = Screen.PrimaryScreen.Bounds.Width;
+            int sh = Screen.PrimaryScreen.Bounds.Height;
+
+            // Tính toán tọa độ thực tế
+            int realX = (input.X * sw) / 1000;
+            int realY = (input.Y * sh) / 1000;
+
+            // Di chuyển chuột
+            MouseHelper.SetCursorPos(realX, realY);
+
+            // Click chuột nếu có action
+            if (input.Action > 0)
+            {
+                MouseHelper.SimulateMouseEvent(input.Action);
+            }
+        }
+
 
         private void HandleLogin(Packet packet, TcpClient client)
         {
@@ -189,22 +219,28 @@ namespace RemoteDesktop.Server.Networking
             var fileDto = DataHelper.Deserialize<FilePacketDTO>(packet.Data);
             if (fileDto != null)
             {
-                // Báo cho giao diện Server
+                // 1. Thông báo cho giao diện Server (Sự kiện OnFileReceived)
                 OnFileReceived?.Invoke(client, packet.Data);
 
-                // Lưu bản backup tại Server
+                // 2. Lưu bản backup tại Server (Tùy chọn)
                 string storagePath = Path.Combine(Application.StartupPath, "ReceivedFiles", fileDto.FileName);
                 Directory.CreateDirectory(Path.GetDirectoryName(storagePath));
                 File.WriteAllBytes(storagePath, fileDto.Buffer);
 
                 LogToUI($"Đã nhận file '{fileDto.FileName}' từ {ip}");
 
-                // Có thể Broadcast thông báo cho các Client khác nếu muốn
-                BroadcastPacket(new Packet
+                // 3. BROADCAST thông báo chat: [IP] đã gửi file: [Tên file]
+                string broadcastContent = $"[{ip}] đã gửi file: {fileDto.FileName}";
+                var broadcastPacket = new Packet
                 {
                     Type = CommandType.Chat,
-                    Data = Encoding.UTF8.GetBytes($"[Hệ thống]: Client {ip} đã gửi file {fileDto.FileName}")
-                });
+                    Data = Encoding.UTF8.GetBytes(broadcastContent)
+                };
+
+                BroadcastPacket(broadcastPacket); // Gửi cho tất cả Client để đồng bộ khung chat
+
+                // 4. Gửi chính gói tin File này cho các Client khác nếu cần
+                BroadcastPacket(packet);
             }
         }
 

@@ -94,8 +94,12 @@
             picScreen.Location = new Point(12, 50);
             picScreen.Name = "picScreen";
             picScreen.Size = new Size(611, 401);
+            picScreen.SizeMode = PictureBoxSizeMode.StretchImage;
             picScreen.TabIndex = 6;
             picScreen.TabStop = false;
+            picScreen.MouseDown += picScreen_MouseDown;
+            picScreen.MouseMove += picScreen_MouseMove;
+            picScreen.MouseUp += picScreen_MouseUp;
             // 
             // lsvLog
             // 

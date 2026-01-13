@@ -130,6 +130,7 @@
             Name = "frmRemote";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "SERVER - Remote";
+            Load += frmRemote_Load;
             pnlSideBar.ResumeLayout(false);
             pnlSideBar.PerformLayout();
             ResumeLayout(false);

@@ -13,12 +13,55 @@ using System.Net.Sockets;
 using System.Text;
 using System.Windows.Forms;
 
+using CommandType = RemoteDesktop.Common.Models.CommandType;
+
+
 namespace RemoteDesktop.Server
 {
     public partial class frmRemote : Form
     {
         private ServerHandler _server;
         private TcpClient _targetClient; // Lưu trữ client đang kết nối
+
+
+        private bool _isStreaming = false;
+        private void frmRemote_Load(object sender, EventArgs e)
+        {
+            // Gọi hàm StartStreaming khi Form bắt đầu hiển thị
+            StartStreaming();
+        }
+        //Stream MÀN HÌNH
+        private void StartStreaming()
+        {
+            _isStreaming = true;
+            Thread screenThread = new Thread(() =>
+            {
+                while (_isStreaming && _targetClient.Connected)
+                {
+                    try
+                    {
+                        // 1. Chụp màn hình
+                        byte[] screenData = RemoteDesktop.Server.Services.ScreenCapturer.CaptureDesktop();
+
+                        // 2. Tạo gói tin ScreenUpdate
+                        var packet = new Packet
+                        {
+                            Type = RemoteDesktop.Common.Models.CommandType.ScreenUpdate,
+                            Data = screenData
+                        };
+
+                        // 3. Gửi cho Client đang kết nối
+                        _server.SendSecurePacket(_targetClient.GetStream(), packet);
+
+                        // Đợi một khoảng ngắn (VD: 100ms ~ 10 FPS) để tránh quá tải mạng
+                        Thread.Sleep(100);
+                    }
+                    catch { break; }
+                }
+            });
+            screenThread.IsBackground = true;
+            screenThread.Start();
+        }
 
 
         public frmRemote(ServerHandler server, TcpClient client)
@@ -36,12 +79,21 @@ namespace RemoteDesktop.Server
 
             // Đăng ký nhận File
             this._server.OnFileReceived += (sender, data) => {
-                if (sender == _targetClient)
+                string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+                var fileDto = DataHelper.Deserialize<FilePacketDTO>(data);
+
+                if (fileDto != null)
                 {
+                    // Hiển thị lên khung chat của Server: [IP] đã gửi file: [Tên file]
+                    AppendChatHistory($"[{senderIP}] đã gửi file: {fileDto.FileName}");
+
+                    // Gọi hàm lưu file và mở thư mục như đã thảo luận trước đó
                     HandleIncomingFile(data);
                 }
             };
         }
+
+        
 
 
         private void btnSendChat_Click(object sender, EventArgs e)
@@ -75,34 +127,25 @@ namespace RemoteDesktop.Server
         {
             using (OpenFileDialog ofd = new OpenFileDialog())
             {
-                ofd.Title = "Chọn file muốn gửi tới Client";
                 if (ofd.ShowDialog() == DialogResult.OK)
                 {
                     try
                     {
-                        var stream = _targetClient.GetStream();
-                        // 1. Đóng gói file vào DTO
-                        var fileDto = new RemoteDesktop.Common.DTOs.FilePacketDTO
+                        var fileDto = new FilePacketDTO
                         {
-                            FileName = System.IO.Path.GetFileName(ofd.FileName),
-                            Buffer = System.IO.File.ReadAllBytes(ofd.FileName)
+                            FileName = Path.GetFileName(ofd.FileName),
+                            Buffer = File.ReadAllBytes(ofd.FileName)
                         };
 
-                        // 2. Tạo Packet FileTransfer
-                        var packet = new RemoteDesktop.Common.Models.Packet
+                        var packet = new Packet
                         {
-                            Type = RemoteDesktop.Common.Models.CommandType.FileTransfer,
-                            Data = RemoteDesktop.Common.Helpers.DataHelper.Serialize(fileDto)
+                            Type = CommandType.FileTransfer,
+                            Data = DataHelper.Serialize(fileDto)
                         };
 
-                        // 3. Gửi đi
+                        // Server gửi cho tất cả Client
                         _server.BroadcastPacket(packet);
-
-                        // 4. Thông báo và log
-                        txtChatHistory.AppendText($"[Hệ thống]: Đang gửi file {fileDto.FileName}...{Environment.NewLine}");
-                        NetworkHelper.SendSecurePacket(stream, packet);
-
-                        AppendChatHistory($"[Hệ thống]: Đã gửi xong file {fileDto.FileName}");
+                        AppendChatHistory($"[Hệ thống]: Server đã gửi file {fileDto.FileName}");
                     }
                     catch (Exception ex)
                     {
@@ -130,22 +173,29 @@ namespace RemoteDesktop.Server
         {
             try
             {
-                var fileDto = DataHelper.Deserialize<RemoteDesktop.Common.DTOs.FilePacketDTO>(rawData);
+                var fileDto = DataHelper.Deserialize<FilePacketDTO>(rawData);
                 if (fileDto != null)
                 {
-                    // Lưu vào thư mục Downloads của máy Client
-                    string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileDto.FileName);
+                    // Lưu vào thư mục Downloads
+                    string downloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                    string filePath = Path.Combine(downloadPath, fileDto.FileName);
 
-                    File.WriteAllBytes(path, fileDto.Buffer);
+                    File.WriteAllBytes(filePath, fileDto.Buffer);
 
-                    AppendChatHistory($"[Hệ thống]: Đã nhận file '{fileDto.FileName}' và lưu tại thư mục Downloads.");
-                    MessageBox.Show($"Bạn đã nhận được file: {fileDto.FileName}", "Thông báo");
+                    // Mở thư mục và bôi đậm file vừa nhận
+                    Process.Start("explorer.exe", $"/select,\"{filePath}\"");
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi khi lưu file: " + ex.Message);
+                MessageBox.Show("Lỗi khi lưu file tại Server: " + ex.Message);
             }
         }
+
+
+        //STREAM MÀN HÌNH
+        
+
+        
     }
 }

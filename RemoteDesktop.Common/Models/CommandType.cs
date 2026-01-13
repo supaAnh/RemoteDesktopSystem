@@ -7,7 +7,8 @@
         Chat = 1,
         FileTransfer = 2,
         ScreenUpdate = 3,
-        Disconnect = 4
+        Disconnect = 4,
+        InputControl = 5
         // Đảm bảo thứ tự này không thay đổi giữa Server và Client
     }
 }
