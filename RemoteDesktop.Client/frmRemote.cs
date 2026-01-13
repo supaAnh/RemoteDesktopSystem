@@ -10,8 +10,10 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+
 // Dùng alias để tránh lỗi Ambiguous reference (CS0104)
 using MyCommand = RemoteDesktop.Common.Models.CommandType;
+
 
 namespace RemoteDesktop.Client
 {
@@ -25,7 +27,15 @@ namespace RemoteDesktop.Client
             InitializeComponent();
             this._client = client;
 
-            // Khởi động việc lắng nghe dữ liệu từ Server
+            if (this._client == null || !this._client.IsConnected)
+            {
+                MessageBox.Show("CẢNH BÁO: Đối tượng kết nối bị null hoặc chưa kết nối!");
+            }
+        }
+
+        private void frmRemote_Load(object sender, EventArgs e)
+        {
+            // Đảm bảo luồng chỉ bắt đầu khi giao diện đã hiện lên
             Thread t = new Thread(ReceiveLoop);
             t.IsBackground = true;
             t.Start();
@@ -38,46 +48,50 @@ namespace RemoteDesktop.Client
             {
                 try
                 {
-                    // Nhận gói tin từ Server
-                    var packet = NetworkHelper.ReceiveSecurePacket(_client.GetStream());
+                    // Khai báo rõ ràng biến stream cho mỗi lần lặp nhận gói tin
+                    var currentStream = _client.GetStream();
+                    var packet = NetworkHelper.ReceiveSecurePacket(currentStream);
 
                     if (packet != null)
                     {
-                        // Thay vì dùng Event, ta dùng switch-case để phân loại dữ liệu
-                        switch (packet.Type)
-                        {
-                            case MyCommand.Chat:
+                        this.Invoke(new Action(() => {
+                            if (packet.Type == MyCommand.Chat && packet.Data != null)
+                            {
                                 string msg = Encoding.UTF8.GetString(packet.Data);
-                                // Cập nhật lên giao diện
-                                AppendChatHistory($"[SERVER]: {msg}");
-                                break;
-
-                            case MyCommand.ScreenUpdate:
-                                UpdateScreen(packet.Data);
-                                break;
-
-                            // Các trường hợp khác (FileTransfer)
-                            case MyCommand.FileTransfer:
-                               
+                                AppendChatHistory(msg);
+                            }
+                            else if (packet.Type == MyCommand.FileTransfer)
+                            {
                                 HandleIncomingFile(packet.Data);
-                                break;
-                        }
+                            }
+                            else if (packet.Type == MyCommand.ScreenUpdate)
+                            {
+                                UpdateScreen(packet.Data);
+                            }
+                        }));
                     }
                 }
-                catch { break; }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Lỗi luồng nhận: " + ex.Message);
+                    break;
+                }
             }
         }
 
-        private void AppendChatHistory(string text)
+        private void AppendChatHistory(string message)
         {
             if (txtChatHistory.InvokeRequired)
             {
-                txtChatHistory.Invoke(new Action(() => AppendChatHistory(text)));
+                txtChatHistory.Invoke(new Action(() => AppendChatHistory(message)));
             }
             else
             {
-                txtChatHistory.AppendText(text + Environment.NewLine);
-                txtChatHistory.ScrollToCaret(); // Tự động cuộn xuống tin mới nhất
+                // Sử dụng AppendText giúp tự động cuộn xuống cuối
+                txtChatHistory.AppendText(message + Environment.NewLine);
+
+                // Buộc UI vẽ lại để tránh hiện tượng trắng màn hình
+                txtChatHistory.Refresh();
             }
         }
         private void HandleIncomingFile(byte[] rawData)
@@ -130,27 +144,29 @@ namespace RemoteDesktop.Client
         private void btnSendChat_Click(object sender, EventArgs e)
         {
             string msg = txtChatInput.Text.Trim();
-
-            if (string.IsNullOrEmpty(txtChatInput.Text)) return;
+            if (string.IsNullOrEmpty(msg)) return;
 
             try
             {
                 var packet = new Packet
                 {
                     Type = MyCommand.Chat,
-                    Data = Encoding.UTF8.GetBytes(txtChatInput.Text)
+                    Data = Encoding.UTF8.GetBytes(msg)
                 };
 
-                // Kiểm tra xem _client.GetStream() có bị null không
+                // Lấy stream nhưng TUYỆT ĐỐI KHÔNG dùng using ở đây
                 var stream = _client.GetStream();
-                NetworkHelper.SendSecurePacket(stream, packet);
 
-                AppendChatHistory($"[CLIENT]: {txtChatInput.Text}");
-                txtChatInput.Clear();
+                if (stream != null)
+                {
+                    NetworkHelper.SendSecurePacket(stream, packet);
+                    txtChatInput.Clear();
+                    // Không gọi AppendChatHistory ở đây, đợi Server phản hồi
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi gửi: " + ex.Message);
+                MessageBox.Show("Lỗi gửi tin nhắn: " + ex.Message);
             }
         }
 

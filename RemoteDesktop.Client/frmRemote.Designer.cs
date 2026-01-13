@@ -85,6 +85,7 @@
             txtChatHistory.Location = new Point(18, 13);
             txtChatHistory.Multiline = true;
             txtChatHistory.Name = "txtChatHistory";
+            txtChatHistory.ReadOnly = true;
             txtChatHistory.Size = new Size(384, 308);
             txtChatHistory.TabIndex = 0;
             // 

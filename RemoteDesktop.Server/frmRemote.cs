@@ -1,16 +1,17 @@
-﻿using RemoteDesktop.Common.Helpers;
+﻿using RemoteDesktop.Common.DTOs;
+using RemoteDesktop.Common.Helpers;
 using RemoteDesktop.Common.Models;
 using RemoteDesktop.Server.Networking;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Windows.Forms;
-using System.Diagnostics;
-using RemoteDesktop.Common.DTOs;
 
 namespace RemoteDesktop.Server
 {
@@ -24,25 +25,20 @@ namespace RemoteDesktop.Server
         {
             InitializeComponent();
             this._server = server;
-            this._targetClient = client;
+            this._targetClient = client; // Client mà bạn đang tập trung điều khiển
 
-            // Đăng ký sự kiện: Khi ServerHandler báo có chat, thì hiển thị lên TextBox
-            _server.OnChatReceived += (senderClient, message) => {
-                // Chỉ hiển thị nếu tin nhắn đến từ đúng Client mà Form này đang quản lý
-                if (senderClient == _targetClient)
-                {
-                   AppendChatHistory($"CLIENT: {message}");
-                }
-
+            // Đăng ký nhận Chat: Khi có bất kỳ ai nhắn, hiện lên khung chat Server
+            this._server.OnChatReceived += (sender, message) => {
+                // Lấy IP của người gửi để hiển thị cho rõ
+                string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+                AppendChatHistory($"[{senderIP}]: {message}");
             };
 
-            _server.OnFileReceived += (sender, data) => {
+            // Đăng ký nhận File
+            this._server.OnFileReceived += (sender, data) => {
                 if (sender == _targetClient)
                 {
-                    this.Invoke(new Action(() => {
-                        // QUAN TRỌNG: Gọi hàm này để lưu file phía Server
-                        HandleIncomingFile(data);
-                    }));
+                    HandleIncomingFile(data);
                 }
             };
         }
@@ -50,23 +46,22 @@ namespace RemoteDesktop.Server
 
         private void btnSendChat_Click(object sender, EventArgs e)
         {
+            string msg = txtChatInput.Text.Trim();
+            if (string.IsNullOrEmpty(msg)) return;
 
             try
             {
-                string msg = txtChatInput.Text.Trim();
-                if (string.IsNullOrEmpty(msg)) return;
-
+                // Tạo gói tin Chat của Server
                 var packet = new Packet
                 {
                     Type = RemoteDesktop.Common.Models.CommandType.Chat,
-                    Data = Encoding.UTF8.GetBytes(msg)
+                    Data = Encoding.UTF8.GetBytes($"[SERVER]: {msg}")
                 };
 
-                // Đảm bảo dùng _targetClient (TcpClient nhận được khi kết nối)
-                var stream = _targetClient.GetStream();
-                NetworkHelper.SendSecurePacket(stream, packet);
+                // Gửi cho TẤT CẢ các Client đang online
+                _server.BroadcastPacket(packet);
 
-                // Hiển thị phía Server
+                // Hiển thị nội dung vừa gửi lên khung chat của chính Server
                 AppendChatHistory($"[SERVER]: {msg}");
                 txtChatInput.Clear();
             }
@@ -101,7 +96,7 @@ namespace RemoteDesktop.Server
                         };
 
                         // 3. Gửi đi
-                        _server.SendSecurePacket(_targetClient.GetStream(), packet);
+                        _server.BroadcastPacket(packet);
 
                         // 4. Thông báo và log
                         txtChatHistory.AppendText($"[Hệ thống]: Đang gửi file {fileDto.FileName}...{Environment.NewLine}");
@@ -125,9 +120,12 @@ namespace RemoteDesktop.Server
             else
             {
                 txtChatHistory.AppendText(text + Environment.NewLine);
+                // Tự động cuộn xuống dòng cuối cùng
+                txtChatHistory.SelectionStart = txtChatHistory.Text.Length;
                 txtChatHistory.ScrollToCaret();
             }
         }
+
         private void HandleIncomingFile(byte[] rawData)
         {
             try
