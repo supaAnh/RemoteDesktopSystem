@@ -54,11 +54,12 @@ namespace RemoteDesktop.Client
 
                     if (packet != null)
                     {
-                        this.Invoke(new Action(() => {
-                            if (packet.Type == MyCommand.Chat && packet.Data != null)
+                        this.Invoke(new Action(() =>
+                        {
+                            if (packet.Type == MyCommand.Chat)
                             {
                                 string msg = Encoding.UTF8.GetString(packet.Data);
-                                AppendChatHistory(msg);
+                                AppendChatHistory(msg); // Hiển thị tin nhắn từ Server
                             }
                             else if (packet.Type == MyCommand.FileTransfer)
                             {
@@ -178,7 +179,7 @@ namespace RemoteDesktop.Client
                 {
                     try
                     {
-                        
+
                         // 1. Đóng gói dữ liệu file
                         var fileDto = new FilePacketDTO
                         {
@@ -205,5 +206,6 @@ namespace RemoteDesktop.Client
                 }
             }
         }
+
     }
 }

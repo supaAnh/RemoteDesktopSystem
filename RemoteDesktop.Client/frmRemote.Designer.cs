@@ -132,6 +132,7 @@
             Name = "frmRemote";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "CLIENT - Remote";
+            Load += frmRemote_Load;
             pnlSideBar.ResumeLayout(false);
             pnlSideBar.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)picScreen).EndInit();
