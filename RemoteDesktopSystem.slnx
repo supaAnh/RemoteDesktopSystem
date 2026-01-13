@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="RemoteDesktop.Client/RemoteDesktop.Client.csproj" />
+  <Project Path="RemoteDesktop.Common/RemoteDesktop.Common.csproj" />
+  <Project Path="RemoteDesktop.Server/RemoteDesktop.Server.csproj" />
+</Solution>
