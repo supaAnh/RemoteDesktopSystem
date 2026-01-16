@@ -105,6 +105,7 @@
             btnStopRemote.TabIndex = 3;
             btnStopRemote.Text = "Ngắt kết nối";
             btnStopRemote.UseVisualStyleBackColor = true;
+            btnStopRemote.Click += btnStopRemote_Click;
             // 
             // lsvLog
             // 

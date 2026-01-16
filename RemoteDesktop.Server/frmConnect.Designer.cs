@@ -59,9 +59,9 @@
             // 
             // btnStart
             // 
-            btnStart.Location = new Point(298, 158);
+            btnStart.Location = new Point(298, 130);
             btnStart.Name = "btnStart";
-            btnStart.Size = new Size(151, 57);
+            btnStart.Size = new Size(151, 48);
             btnStart.TabIndex = 1;
             btnStart.Text = "Khởi động Server";
             btnStart.UseVisualStyleBackColor = true;

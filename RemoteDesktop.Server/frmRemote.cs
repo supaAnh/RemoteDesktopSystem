@@ -71,14 +71,16 @@ namespace RemoteDesktop.Server
             this._targetClient = client; // Client mà bạn đang tập trung điều khiển
 
             // Đăng ký nhận Chat: Khi có bất kỳ ai nhắn, hiện lên khung chat Server
-            this._server.OnChatReceived += (sender, message) => {
+            this._server.OnChatReceived += (sender, message) =>
+            {
                 // Lấy IP của người gửi để hiển thị cho rõ
                 string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
                 AppendChatHistory($"[{senderIP}]: {message}");
             };
 
             // Đăng ký nhận File
-            this._server.OnFileReceived += (sender, data) => {
+            this._server.OnFileReceived += (sender, data) =>
+            {
                 string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
                 var fileDto = DataHelper.Deserialize<FilePacketDTO>(data);
 
@@ -93,7 +95,7 @@ namespace RemoteDesktop.Server
             };
         }
 
-        
+
 
 
         private void btnSendChat_Click(object sender, EventArgs e)
@@ -193,9 +195,21 @@ namespace RemoteDesktop.Server
         }
 
 
-        //STREAM MÀN HÌNH
-        
+        // Ngắt kết nối và trở về frmConnect
+        private void btnStopRemote_Click(object sender, EventArgs e)
+        {
+            if (_server != null)
+            {
+                _server.Stop(); //gửi gói tin Disconnect trước
+            }
 
-        
+            _isStreaming = false;
+            frmConnect connectForm = new frmConnect();
+            connectForm.Show();
+            this.Close();
+        }
+
+
+
     }
 }

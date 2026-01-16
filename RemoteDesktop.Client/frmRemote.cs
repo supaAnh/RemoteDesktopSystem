@@ -59,10 +59,18 @@ namespace RemoteDesktop.Client
         {
             if (e.Button == MouseButtons.Left)
             {
-                SendInput(0, 2, e.X, e.Y, 0); // Action 2: LeftUp
+                SendInput(0, 2, e.X, e.Y, 0);
             }
         }
 
+        // Gửi lệnh nhấn phím
+        private void frmRemote_KeyDown(object sender, KeyEventArgs e)
+        {
+            // Gửi mã KeyValue của phím sang Server
+            SendInput(1, 3, 0, 0, e.KeyValue);
+        }
+
+        // Gửi lệnh thả phím
         private void SendInput(int type, int action, int x, int y, int keyCode)
         {
             // Tính toán tỷ lệ dựa trên kích thước thực tế của picScreen
@@ -130,6 +138,10 @@ namespace RemoteDesktop.Client
                             {
                                 UpdateScreen(packet.Data);
                             }
+                            else if (packet.Type == MyCommand.Disconnect)
+                            {
+                                HandleServerDisconnect();
+                            }
                         }));
                     }
                 }
@@ -156,6 +168,27 @@ namespace RemoteDesktop.Client
                 txtChatHistory.Refresh();
             }
         }
+        // Xử lý khi server ngắt kết nối
+        private void HandleServerDisconnect()
+        {
+            // Hiển thị thông báo xác nhận
+            DialogResult result = MessageBox.Show(
+                "Server đã ngắt kết nối hoặc ngừng hoạt động. Bạn có muốn thoát không?",
+                "Thông báo",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (result == DialogResult.Yes)
+            {
+                // Thực hiện ngắt kết nối và quay về màn hình chính
+                if (_client != null) _client.Disconnect();
+
+                frmConnect connectForm = new frmConnect();
+                connectForm.Show();
+                this.Close();
+            }
+        }
+
         private void HandleIncomingFile(byte[] rawData)
         {
             try
@@ -202,9 +235,25 @@ namespace RemoteDesktop.Client
 
         private void btnDisconnect_Click(object sender, EventArgs e)
         {
-            frmConnect connectForm = new frmConnect();
-            connectForm.Show();
-            this.Close();
+            try
+            {
+                // 1. Gọi hàm ngắt kết nối trong ClientHandler để đóng Stream và TcpClient
+                if (_client != null)
+                {
+                    _client.Disconnect();
+                }
+
+                // 2. Hiển thị lại Form kết nối ban đầu
+                frmConnect connectForm = new frmConnect();
+                connectForm.Show();
+
+                // 3. Đóng Form điều khiển hiện tại
+                this.Close();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi khi ngắt kết nối: " + ex.Message);
+            }
         }
 
         private void btnSendChat_Click(object sender, EventArgs e)

@@ -159,21 +159,25 @@ namespace RemoteDesktop.Server.Networking
             var input = DataHelper.Deserialize<InputDTO>(packet.Data);
             if (input == null) return;
 
-            // Lấy độ phân giải thực của màn hình Server hiện tại
-            int sw = Screen.PrimaryScreen.Bounds.Width;
-            int sh = Screen.PrimaryScreen.Bounds.Height;
-
-            // Tính toán tọa độ thực tế
-            int realX = (input.X * sw) / 1000;
-            int realY = (input.Y * sh) / 1000;
-
-            // Di chuyển chuột
-            MouseHelper.SetCursorPos(realX, realY);
-
-            // Click chuột nếu có action
-            if (input.Action > 0)
+            if (input.Type == 0) // 0: Chuột
             {
-                MouseHelper.SimulateMouseEvent(input.Action);
+                int sw = Screen.PrimaryScreen.Bounds.Width;
+                int sh = Screen.PrimaryScreen.Bounds.Height;
+
+                int realX = (input.X * sw) / 1000;
+                int realY = (input.Y * sh) / 1000;
+
+                MouseHelper.SetCursorPos(realX, realY);
+
+                if (input.Action > 0)
+                {
+                    MouseHelper.SimulateMouseEvent(input.Action);
+                }
+            }
+            else if (input.Type == 1) // 1: Bàn phím
+            {
+                // Sử dụng KeyboardHelper mới tạo để xử lý phím
+                KeyboardHelper.SimulateKeyPress(input.KeyCode);
             }
         }
 
@@ -303,6 +307,19 @@ namespace RemoteDesktop.Server.Networking
 
         public void Stop()
         {
+            // 1. Tạo gói tin thông báo ngắt kết nối
+            var disconnectPacket = new Packet
+            {
+                Type = CommandType.Disconnect,
+                Data = Encoding.UTF8.GetBytes("Server đã ngắt kết nối!")
+            };
+
+            // 2. Gửi thông báo cho tất cả Client
+            BroadcastPacket(disconnectPacket);
+
+            // Đợi một chút để đảm bảo gói tin đã được gửi đi trước khi đóng socket
+            Thread.Sleep(500);
+
             _isRunning = false;
             _server?.Stop();
             lock (_clientLock)

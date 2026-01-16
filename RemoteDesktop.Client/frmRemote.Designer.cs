@@ -47,14 +47,14 @@
             pnlSideBar.Controls.Add(btnSendChat);
             pnlSideBar.Controls.Add(txtChatInput);
             pnlSideBar.Controls.Add(txtChatHistory);
-            pnlSideBar.Location = new Point(629, 50);
+            pnlSideBar.Location = new Point(777, 50);
             pnlSideBar.Name = "pnlSideBar";
-            pnlSideBar.Size = new Size(415, 401);
+            pnlSideBar.Size = new Size(415, 497);
             pnlSideBar.TabIndex = 5;
             // 
             // btnSendFile
             // 
-            btnSendFile.Location = new Point(333, 327);
+            btnSendFile.Location = new Point(333, 426);
             btnSendFile.Name = "btnSendFile";
             btnSendFile.Size = new Size(69, 59);
             btnSendFile.TabIndex = 3;
@@ -64,7 +64,7 @@
             // 
             // btnSendChat
             // 
-            btnSendChat.Location = new Point(258, 327);
+            btnSendChat.Location = new Point(258, 426);
             btnSendChat.Name = "btnSendChat";
             btnSendChat.Size = new Size(69, 59);
             btnSendChat.TabIndex = 2;
@@ -74,7 +74,7 @@
             // 
             // txtChatInput
             // 
-            txtChatInput.Location = new Point(18, 327);
+            txtChatInput.Location = new Point(18, 426);
             txtChatInput.Multiline = true;
             txtChatInput.Name = "txtChatInput";
             txtChatInput.Size = new Size(234, 59);
@@ -86,14 +86,14 @@
             txtChatHistory.Multiline = true;
             txtChatHistory.Name = "txtChatHistory";
             txtChatHistory.ReadOnly = true;
-            txtChatHistory.Size = new Size(384, 308);
+            txtChatHistory.Size = new Size(384, 407);
             txtChatHistory.TabIndex = 0;
             // 
             // picScreen
             // 
-            picScreen.Location = new Point(12, 50);
+            picScreen.Location = new Point(12, 10);
             picScreen.Name = "picScreen";
-            picScreen.Size = new Size(611, 401);
+            picScreen.Size = new Size(759, 537);
             picScreen.SizeMode = PictureBoxSizeMode.StretchImage;
             picScreen.TabIndex = 6;
             picScreen.TabStop = false;
@@ -103,9 +103,9 @@
             // 
             // lsvLog
             // 
-            lsvLog.Location = new Point(12, 457);
+            lsvLog.Location = new Point(12, 553);
             lsvLog.Name = "lsvLog";
-            lsvLog.Size = new Size(1032, 189);
+            lsvLog.Size = new Size(1180, 189);
             lsvLog.TabIndex = 7;
             lsvLog.UseCompatibleStateImageBehavior = false;
             // 
@@ -116,7 +116,7 @@
             // btnDisconnect
             // 
             btnDisconnect.Font = new Font("Segoe UI", 10F);
-            btnDisconnect.Location = new Point(923, 10);
+            btnDisconnect.Location = new Point(1071, 10);
             btnDisconnect.Name = "btnDisconnect";
             btnDisconnect.Size = new Size(121, 34);
             btnDisconnect.TabIndex = 8;
@@ -128,15 +128,17 @@
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1056, 658);
+            ClientSize = new Size(1204, 754);
             Controls.Add(btnDisconnect);
             Controls.Add(lsvLog);
             Controls.Add(picScreen);
             Controls.Add(pnlSideBar);
+            KeyPreview = true;
             Name = "frmRemote";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "CLIENT - Remote";
             Load += frmRemote_Load;
+            KeyDown += frmRemote_KeyDown;
             pnlSideBar.ResumeLayout(false);
             pnlSideBar.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)picScreen).EndInit();
