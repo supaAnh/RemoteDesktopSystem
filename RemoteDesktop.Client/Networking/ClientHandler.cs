@@ -29,6 +29,24 @@ namespace RemoteDesktop.Client.Networking
             }
         }
 
+        public Packet ReceivePacket()
+        {
+            if (_isConnected && _stream != null)
+            {
+                try
+                {
+                    // Sử dụng NetworkHelper để nhận và giải mã gói tin an toàn
+                    return NetworkHelper.ReceiveSecurePacket(_stream);
+                }
+                catch
+                {
+                    Disconnect();
+                }
+            }
+            return null;
+        }
+
+
         // Gửi gói tin đi sử dụng giao thức an toàn (AES + Length Header)
         public void SendPacket(Packet packet)
         {

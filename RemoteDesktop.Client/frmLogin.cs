@@ -38,35 +38,55 @@ namespace RemoteDesktop.Client
 
         private void btnLogin_Click(object sender, EventArgs e)
         {
-            //    // 1. Đóng gói thông tin vào DTO
-            //    LoginDTO loginInfo = new LoginDTO
-            //    {
-            //        Username = txtUsername.Text,
-            //        Password = txtPassword.Text
-            //    };
-
-            //    // 2. Tạo Packet loại Login
-            //    Packet p = new Packet
-            //    {
-            //        Type = RemoteDesktop.Common.Models.CommandType.Login,
-            //        Data = DataHelper.Serialize(loginInfo)
-            //    };
-
-            //    // 3. Gửi cho Server
-            //    _client.SendPacket(p);
-
-            //    // 4. Lắng nghe phản hồi từ Server (Đoạn này tạm thời đợi phản hồi)
-            //    lblStatus.Text = "Đang xác thực...";
-            //
-            if (_client == null)
+            if (_client == null || !_client.IsConnected)
             {
-                MessageBox.Show("Lỗi: Đối tượng kết nối (ClientHandler) chưa được khởi tạo!");
+                MessageBox.Show("Lỗi: Chưa kết nối tới Server!");
                 return;
             }
-            frmRemote remote = new frmRemote(_client);
-            remote.Show();
-            this.Hide();
-            Console.WriteLine("Đã chuyển sang frmRemote thành công.");
+
+            // 1. Đóng gói thông tin vào DTO
+            LoginDTO loginInfo = new LoginDTO
+            {
+                Username = txtUsername.Text,
+                Password = txtPassword.Text
+            };
+
+            // 2. Tạo Packet loại Login
+            Packet p = new Packet
+            {
+                Type = RemoteDesktop.Common.Models.CommandType.Login,
+                Data = DataHelper.Serialize(loginInfo)
+            };
+
+            // 3. Gửi cho Server thông qua ClientHandler
+            _client.SendPacket(p);
+            lblStatus.Text = "Đang xác thực...";
+
+            // 4. Đợi phản hồi từ Server (Đọc trực tiếp từ Stream cho bước đăng nhập)
+            try
+            {
+                var response = NetworkHelper.ReceiveSecurePacket(_client.GetStream());
+                if (response != null && response.Type == RemoteDesktop.Common.Models.CommandType.Login)
+                {
+                    string result = Encoding.UTF8.GetString(response.Data);
+                    if (result == "SUCCESS")
+                    {
+                        // Đăng nhập thành công -> Chuyển sang màn hình điều khiển
+                        frmRemote remote = new frmRemote(_client);
+                        remote.Show();
+                        this.Hide();
+                    }
+                    else
+                    {
+                        lblStatus.Text = "Sai tài khoản hoặc mật khẩu!";
+                        MessageBox.Show("Đăng nhập thất bại!");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi xác thực: " + ex.Message);
+            }
         }
 
         private void chkShowPassword_CheckedChanged(object sender, EventArgs e)

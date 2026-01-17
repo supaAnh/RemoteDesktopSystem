@@ -19,7 +19,9 @@ namespace RemoteDesktop.Server.Networking
         private TcpListener _server;
         private bool _isRunning;
         private ListView _logView;
-        private Database.DatabaseManager _db = new Database.DatabaseManager();
+
+        // Quản lý kết nối Database
+        private Database.DatabaseManager _dbManager = new Database.DatabaseManager();
 
         // Danh sách quản lý tất cả Client đang kết nối
         private readonly List<TcpClient> _connectedClients = new List<TcpClient>();
@@ -129,6 +131,10 @@ namespace RemoteDesktop.Server.Networking
                     HandleLogin(packet, client);
                     break;
 
+                case CommandType.Register:
+                    HandleRegister(packet, client);
+                    break;
+
                 case CommandType.Chat:
                     HandleChatRequest(packet, client, ip);
                     break;
@@ -143,8 +149,6 @@ namespace RemoteDesktop.Server.Networking
                 case CommandType.InputControl:
                     HandleInputControl(packet);
                     break;
-                
-
 
                 default:
                     LogToUI($"Nhận loại gói tin không xác định: {packet.Type}");
@@ -153,6 +157,58 @@ namespace RemoteDesktop.Server.Networking
         }
 
         // --- CÁC HÀM XỬ LÝ LOGIC CHI TIẾT ---
+
+        private void HandleLogin(Packet packet, TcpClient client)
+        {
+            var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
+            if (loginInfo == null) return;
+
+            // Kiểm tra thông tin trong DB (Hàm ValidateUser đã bao gồm check Status = 1)
+            bool isValid = _dbManager.ValidateUser(loginInfo.Username, loginInfo.Password);
+
+            // Gửi phản hồi cho Client
+            Packet response = new Packet
+            {
+                Type = CommandType.Login,
+                Data = Encoding.UTF8.GetBytes(isValid ? "SUCCESS" : "FAIL")
+            };
+            NetworkHelper.SendSecurePacket(client.GetStream(), response);
+
+            if (isValid)
+            {
+                LogToUI($"Người dùng '{loginInfo.Username}' đăng nhập thành công.");
+
+                // Kích hoạt sự kiện để frmConnect ẩn đi và hiện frmRemote
+                OnClientConnected?.Invoke(client);
+            }
+            else
+            {
+                LogToUI($"Đăng nhập thất bại: Tài khoản '{loginInfo.Username}' sai hoặc chưa duyệt.");
+            }
+        }
+
+        private void HandleRegister(Packet packet, TcpClient client)
+        {
+            // 1. Giải mã thông tin đăng ký
+            LoginDTO regInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
+
+            // 2. Lưu vào DB với Status = 0 (Chờ duyệt)
+            bool isRegistered = _dbManager.RegisterUser(regInfo.Username, regInfo.Password);
+
+            // 3. Phản hồi cho Client biết đã nhận yêu cầu
+            string responseMsg = isRegistered ? "REGISTER_PENDING" : "REGISTER_FAILED";
+            Packet responsePacket = new Packet
+            {
+                Type = CommandType.Register,
+                Data = Encoding.UTF8.GetBytes(responseMsg)
+            };
+
+            NetworkHelper.SendSecurePacket(client.GetStream(), responsePacket);
+
+            // 4. Thông báo cho Admin Server biết để phê duyệt
+            // Nếu bạn có lsvLog, hãy add vào đó:
+            // lsvLog.Items.Add($"Người dùng {regInfo.Username} vừa đăng ký, đang chờ duyệt.");
+        }
 
         private void HandleInputControl(Packet packet)
         {
@@ -181,21 +237,21 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-
-        private void HandleLogin(Packet packet, TcpClient client)
+        public void CheckDatabaseConnection()
         {
-            var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
-            if (loginInfo == null) return;
-
-            bool isValid = _db.ValidateUser(loginInfo.Username, loginInfo.Password);
-            Packet response = new Packet
+            try
             {
-                Type = CommandType.Login,
-                Data = Encoding.UTF8.GetBytes(isValid ? "SUCCESS" : "FAIL")
-            };
+                // Giả sử bạn dùng DatabaseManager để kiểm tra
+                _dbManager.InitializeDatabase();
 
-            NetworkHelper.SendSecurePacket(client.GetStream(), response);
-            LogToUI($"Xác thực '{loginInfo.Username}': {(isValid ? "Thành công" : "Thất bại")}");
+                // Nếu thành công, ghi log lên UI
+                LogToUI("Kết nối Database thành công và đã khởi tạo bảng.");
+            }
+            catch (Exception ex)
+            {
+                // Nếu lỗi, ghi log chi tiết lỗi lên UI để debug
+                LogToUI("Lỗi kết nối Database: " + ex.Message);
+            }
         }
 
         private void HandleChatRequest(Packet packet, TcpClient client, string ip)
@@ -292,7 +348,7 @@ namespace RemoteDesktop.Server.Networking
             NetworkHelper.SendSecurePacket(stream, packet);
         }
 
-        private void LogToUI(string message)
+        public void LogToUI(string message)
         {
             if (_logView.InvokeRequired)
             {
