@@ -38,54 +38,77 @@ namespace RemoteDesktop.Client
 
         private void btnLogin_Click(object sender, EventArgs e)
         {
-            if (_client == null || !_client.IsConnected)
+            // 1. Kiểm tra tính hợp lệ cơ bản của đầu vào
+            if (string.IsNullOrWhiteSpace(txtUsername.Text) || string.IsNullOrWhiteSpace(txtPassword.Text))
             {
-                MessageBox.Show("Lỗi: Chưa kết nối tới Server!");
+                MessageBox.Show("Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!", "Thông báo");
                 return;
             }
 
-            // 1. Đóng gói thông tin vào DTO
-            LoginDTO loginInfo = new LoginDTO
+            if (_client == null || !_client.IsConnected)
             {
-                Username = txtUsername.Text,
-                Password = txtPassword.Text
-            };
+                MessageBox.Show("Lỗi: Mất kết nối tới Server. Vui lòng thử lại!", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
-            // 2. Tạo Packet loại Login
-            Packet p = new Packet
-            {
-                Type = RemoteDesktop.Common.Models.CommandType.Login,
-                Data = DataHelper.Serialize(loginInfo)
-            };
-
-            // 3. Gửi cho Server thông qua ClientHandler
-            _client.SendPacket(p);
-            lblStatus.Text = "Đang xác thực...";
-
-            // 4. Đợi phản hồi từ Server (Đọc trực tiếp từ Stream cho bước đăng nhập)
             try
             {
+                // 2. Đóng gói thông tin tài khoản vào LoginDTO
+                LoginDTO loginInfo = new LoginDTO
+                {
+                    Username = txtUsername.Text,
+                    Password = txtPassword.Text
+                };
+
+                // 3. Tạo Packet loại Login và Serialize dữ liệu
+                Packet p = new Packet
+                {
+                    Type = RemoteDesktop.Common.Models.CommandType.Login,
+                    Data = DataHelper.Serialize(loginInfo)
+                };
+
+                // 4. Gửi yêu cầu đăng nhập cho Server qua luồng bảo mật
+                _client.SendPacket(p);
+                lblStatus.Text = "Đang xác thực thông tin...";
+                btnLogin.Enabled = false; // Tạm khóa nút để tránh gửi nhiều lần
+
+                // 5. Đợi phản hồi trực tiếp từ Server cho bước xác thực
                 var response = NetworkHelper.ReceiveSecurePacket(_client.GetStream());
+
                 if (response != null && response.Type == RemoteDesktop.Common.Models.CommandType.Login)
                 {
                     string result = Encoding.UTF8.GetString(response.Data);
+
                     if (result == "SUCCESS")
                     {
-                        // Đăng nhập thành công -> Chuyển sang màn hình điều khiển
-                        frmRemote remote = new frmRemote(_client);
-                        remote.Show();
+                        lblStatus.Text = "Đăng nhập thành công!";
+
+                        // Chuyển sang màn hình điều khiển chính
+                        frmRemote remoteForm = new frmRemote(_client);
+                        remoteForm.Show();
+
+                        // Đóng form đăng nhập hiện tại
                         this.Hide();
                     }
                     else
                     {
                         lblStatus.Text = "Sai tài khoản hoặc mật khẩu!";
-                        MessageBox.Show("Đăng nhập thất bại!");
+                        MessageBox.Show("Đăng nhập thất bại: Thông tin không chính xác hoặc tài khoản chưa được phê duyệt.",
+                                        "Lỗi xác thực", MessageBoxButtons.OK, MessageBoxIcon.Stop);
+                        btnLogin.Enabled = true;
                     }
+                }
+                else
+                {
+                    MessageBox.Show("Không nhận được phản hồi hợp lệ từ máy chủ.", "Lỗi");
+                    btnLogin.Enabled = true;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi xác thực: " + ex.Message);
+                MessageBox.Show("Lỗi trong quá trình xác thực: " + ex.Message, "Lỗi hệ thống");
+                btnLogin.Enabled = true;
+                lblStatus.Text = "Lỗi kết nối.";
             }
         }
 

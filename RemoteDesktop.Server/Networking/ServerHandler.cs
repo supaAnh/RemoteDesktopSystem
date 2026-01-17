@@ -62,32 +62,7 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        private void AcceptClient()
-        {
-            while (_isRunning)
-            {
-                try
-                {
-                    TcpClient client = _server.AcceptTcpClient();
-
-                    // Thêm client vào danh sách quản lý chung
-                    lock (_clientLock)
-                    {
-                        _connectedClients.Add(client);
-                    }
-
-                    OnClientConnected?.Invoke(client);
-
-                    Thread t = new Thread(() => HandleConnectedClient(client));
-                    t.IsBackground = true;
-                    t.Start();
-                }
-                catch
-                {
-                    if (!_isRunning) break;
-                }
-            }
-        }
+       
 
         private void HandleConnectedClient(TcpClient client)
         {
@@ -157,16 +132,29 @@ namespace RemoteDesktop.Server.Networking
         }
 
         // --- CÁC HÀM XỬ LÝ LOGIC CHI TIẾT ---
+        private void AcceptClient()
+        {
+            while (_isRunning)
+            {
+                try
+                {
+                    TcpClient client = _server.AcceptTcpClient();
+                    lock (_clientLock) { _connectedClients.Add(client); }
 
+                    Thread t = new Thread(() => HandleConnectedClient(client));
+                    t.IsBackground = true;
+                    t.Start();
+                }
+                catch { if (!_isRunning) break; }
+            }
+        }
         private void HandleLogin(Packet packet, TcpClient client)
         {
             var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
             if (loginInfo == null) return;
 
-            // Kiểm tra thông tin trong DB (Hàm ValidateUser đã bao gồm check Status = 1)
             bool isValid = _dbManager.ValidateUser(loginInfo.Username, loginInfo.Password);
 
-            // Gửi phản hồi cho Client
             Packet response = new Packet
             {
                 Type = CommandType.Login,
@@ -177,8 +165,7 @@ namespace RemoteDesktop.Server.Networking
             if (isValid)
             {
                 LogToUI($"Người dùng '{loginInfo.Username}' đăng nhập thành công.");
-
-                // Kích hoạt sự kiện để frmConnect ẩn đi và hiện frmRemote
+                // Kích hoạt sự kiện để frmConnect (Server) ẩn đi và hiện frmRemote
                 OnClientConnected?.Invoke(client);
             }
             else
