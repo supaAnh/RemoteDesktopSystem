@@ -46,6 +46,7 @@
             lsvLog.TabIndex = 0;
             lsvLog.UseCompatibleStateImageBehavior = false;
             lsvLog.View = View.Details;
+            lsvLog.SelectedIndexChanged += lsvLog_SelectedIndexChanged;
             // 
             // columnHeader1
             // 

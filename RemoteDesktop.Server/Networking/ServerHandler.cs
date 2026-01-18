@@ -20,6 +20,8 @@ namespace RemoteDesktop.Server.Networking
         private bool _isRunning;
         private ListView _logView;
 
+        public event Action<string> OnLogAdded;
+
         // Quản lý kết nối Database
         private Database.DatabaseManager _dbManager = new Database.DatabaseManager();
 
@@ -343,10 +345,16 @@ namespace RemoteDesktop.Server.Networking
             }
             else
             {
-                _logView.Items.Add(new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message }));
-                _logView.Items[_logView.Items.Count - 1].EnsureVisible();
+                // Thêm mục mới vào ListView kèm thời gian
+                ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
+                _logView.Items.Add(item);
+
+                // Tự động cuộn xuống để luôn thấy log mới nhất
+                item.EnsureVisible();
             }
         }
+
+
 
         public void Stop()
         {

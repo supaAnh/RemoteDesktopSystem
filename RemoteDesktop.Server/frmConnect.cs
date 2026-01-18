@@ -1,6 +1,7 @@
 ﻿using RemoteDesktop.Server.Database;
 using RemoteDesktop.Server.Networking;
 using RemoteDesktop.Server.Networking;
+using RemoteDesktop.Server.Utils;
 namespace RemoteDesktop.Server
 {
     public partial class frmConnect : Form
@@ -18,49 +19,46 @@ namespace RemoteDesktop.Server
         {
             try
             {
-                // 1. Khởi tạo Database và lấy thông tin Port
-                Database.DatabaseManager _dbManager = new Database.DatabaseManager();
                 int port = (int)textPortNum.Value;
-
-                // 2. Khởi tạo ServerHandler
                 _server = new ServerHandler(lsvLog);
 
-                // 3. Kiểm tra kết nối Database trước khi chạy Server
-                _server.LogToUI("Đang kiểm tra kết nối SQL Server...");
-                try
-                {
-                    _dbManager.InitializeDatabase();
-                    _server.LogToUI("Kết nối Database thành công.");
-                }
-                catch (Exception dbEx)
-                {
-                    _server.LogToUI("LỖI SQL: " + dbEx.Message);
-                    MessageBox.Show("Lỗi Database: " + dbEx.Message);
-                    return; // Dừng khởi động nếu DB lỗi
-                }
-
-                // 4. Đăng ký sự kiện: CHỈ chuyển form khi Login thành công
-                // (Lưu ý: Bạn nên tạo sự kiện OnLoginSuccess trong ServerHandler)
+                // Đăng ký sự kiện chuyển form khi có kết nối (đã có trong code của bạn)
                 _server.OnClientConnected += (client) => {
                     this.Invoke(new Action(() => {
-                        // Chỉ ẩn form kết nối và hiện form Remote khi xác thực hoàn tất
                         this.Hide();
                         frmRemote remoteForm = new frmRemote(_server, client);
                         remoteForm.Show();
-                        _server.LogToUI("Đã chuyển sang màn hình điều khiển.");
                     }));
                 };
 
-                // 5. Bắt đầu lắng nghe
-                _server.StartListening(port);
+                // Kiểm tra Database
+                Database.DatabaseManager dbManager = new Database.DatabaseManager();
+                _server.LogToUI("Đang kết nối Database...");
 
+                // Thêm try-catch riêng cho DB để không làm crash toàn bộ nút Start
+                try
+                {
+                    dbManager.InitializeDatabase();
+                    _server.LogToUI("Database đã sẵn sàng.");
+                }
+                catch (Exception dbEx)
+                {
+                    MessageBox.Show("Lỗi kết nối SQL Server: " + dbEx.Message, "Lỗi DB");
+                    return; // Dừng lại nếu không có DB
+                }
+
+                _server.StartListening(port);
                 btnStart.Enabled = false;
-                _server.LogToUI("Server đang chạy và đợi xác thực từ máy khách...");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi khởi động: " + ex.Message);
+                MessageBox.Show("Lỗi khởi động: " + ex.ToString()); // Dùng ex.ToString() để xem chi tiết lỗi
             }
+        }
+
+        private void lsvLog_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
         }
     }
 }

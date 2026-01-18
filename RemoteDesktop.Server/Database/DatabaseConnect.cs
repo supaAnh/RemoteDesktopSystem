@@ -6,8 +6,7 @@ namespace RemoteDesktop.Server.Database
     public static class DatabaseConnect
     {
 
-        private static readonly string _connectionString = @"Server=.\SQLEXPRESS;Database=RemoteDesktopDB;Trusted_Connection=True;TrustServerCertificate=True;";
-
+        private static readonly string _connectionString = @"Server=127.0.0.1,1433;Database=RemoteDesktopDB;User Id=sa;Password=@Supanh123;TrustServerCertificate=True;";
         public static SqlConnection GetConnection()
         {
             try

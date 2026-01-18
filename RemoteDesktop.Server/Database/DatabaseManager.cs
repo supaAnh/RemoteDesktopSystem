@@ -8,7 +8,7 @@ namespace RemoteDesktop.Server.Database
     public class DatabaseManager
     {
         // Chuỗi kết nối SQL Server
-        private string connectionString = @"Server=.\SQLEXPRESS;Database=RemoteDesktopDB;User Id=sa;Password=your_password;TrustServerCertificate=True;";
+        private string connectionString = @"Server=127.0.0.1,1433;Database=RemoteDesktopDB;User Id=sa;Password=@Supanh123;TrustServerCertificate=True;";
 
         public void InitializeDatabase()
         {
@@ -24,10 +24,12 @@ namespace RemoteDesktop.Server.Database
                             Id INT PRIMARY KEY IDENTITY(1,1),
                             Username NVARCHAR(50) NOT NULL UNIQUE,
                             Password NVARCHAR(255) NOT NULL,
-                            Status INT NOT NULL DEFAULT 0
+                            Status INT NOT NULL DEFAULT 0, -- 0: Chờ duyệt, 1: Đã phê duyệt
+                            CreatedAt DATETIME DEFAULT GETDATE()
                         );
-                        INSERT INTO Users (Username, Password, Status) VALUES ('admin', '123456', 1);
-                    END";
+
+                    INSERT INTO Users (Username, Password, Status) 
+                    VALUES ('admin', '123456', 1);";
                 using (var command = new SqlCommand(createTableQuery, connection))
                 {
                     command.ExecuteNonQuery();

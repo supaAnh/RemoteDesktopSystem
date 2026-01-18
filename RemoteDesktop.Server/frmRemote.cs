@@ -93,6 +93,11 @@ namespace RemoteDesktop.Server
                     HandleIncomingFile(data);
                 }
             };
+
+            // Đăng ký nhận log cho ListView trên form Remote này
+            this._server.OnLogAdded += (msg) => {
+                //UpdateListView(lsvLog, msg);
+            };
         }
 
 
