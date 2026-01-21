@@ -114,6 +114,7 @@
             lsvLog.Size = new Size(415, 184);
             lsvLog.TabIndex = 4;
             lsvLog.UseCompatibleStateImageBehavior = false;
+            lsvLog.View = View.Details;
             // 
             // openFileDialog1
             // 

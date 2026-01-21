@@ -339,18 +339,26 @@ namespace RemoteDesktop.Server.Networking
 
         public void LogToUI(string message)
         {
-            if (_logView.InvokeRequired)
-            {
-                _logView.Invoke(new Action(() => LogToUI(message)));
-            }
-            else
-            {
-                // Thêm mục mới vào ListView kèm thời gian
-                ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
-                _logView.Items.Add(item);
+            OnLogAdded?.Invoke(message);
 
-                // Tự động cuộn xuống để luôn thấy log mới nhất
-                item.EnsureVisible();
+            // Tạo gói tin log để gửi cho Client
+            var logPacket = new Packet
+            {
+                Type = CommandType.ServerLog,
+                Data = Encoding.UTF8.GetBytes(message)
+            };
+
+            // Gửi cho tất cả các máy khách đang kết nối
+            BroadcastPacket(logPacket);
+
+            // Cập nhật ListView tại chỗ (frmConnect)
+            if (_logView != null && !_logView.IsDisposed)
+            {
+                _logView.Invoke(new Action(() => {
+                    ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
+                    _logView.Items.Add(item);
+                    item.EnsureVisible();
+                }));
             }
         }
 

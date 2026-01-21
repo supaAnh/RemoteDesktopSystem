@@ -29,7 +29,8 @@ namespace RemoteDesktop.Server.Database
                         );
 
                     INSERT INTO Users (Username, Password, Status) 
-                    VALUES ('admin', '123456', 1);";
+                    VALUES ('admin', '123456', 1);
+                    END;";
                 using (var command = new SqlCommand(createTableQuery, connection))
                 {
                     command.ExecuteNonQuery();

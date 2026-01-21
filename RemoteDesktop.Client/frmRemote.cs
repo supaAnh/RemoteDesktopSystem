@@ -141,7 +141,10 @@ namespace RemoteDesktop.Client
                             else if (packet.Type == MyCommand.Disconnect)
                             {
                                 HandleServerDisconnect();
-                            }
+                            } else if (packet.Type == MyCommand.ServerLog)
+                            {
+                                string logMsg = Encoding.UTF8.GetString(packet.Data);
+                                UpdateClientLogView(logMsg);
                         }));
                     }
                 }
@@ -150,6 +153,24 @@ namespace RemoteDesktop.Client
                     Console.WriteLine("Lỗi luồng nhận: " + ex.Message);
                     break;
                 }
+            }
+        }
+
+        // Hàm bổ trợ cập nhật lsvLog trên giao diện Client
+        private void UpdateClientLogView(string message)
+        {
+            if (lsvLog.InvokeRequired)
+            {
+                lsvLog.Invoke(new Action(() => UpdateClientLogView(message)));
+            }
+            else
+            {
+                var item = new ListViewItem(new[] {
+            DateTime.Now.ToString("HH:mm:ss"),
+            message
+        });
+                lsvLog.Items.Add(item);
+                item.EnsureVisible();
             }
         }
 

@@ -10,6 +10,7 @@
         Disconnect = 4,
         InputControl = 5,
         Register = 6,
-        
+        ServerLog = 7
+
     }
 }

@@ -53,8 +53,8 @@ namespace RemoteDesktop.Server
                         // 3. Gửi cho Client đang kết nối
                         _server.SendSecurePacket(_targetClient.GetStream(), packet);
 
-                        // Đợi một khoảng ngắn (VD: 100ms ~ 10 FPS) để tránh quá tải mạng
-                        Thread.Sleep(100);
+                        // Đợi một khoảng ngắn để tránh quá tải mạng
+                        Thread.Sleep(300);
                     }
                     catch { break; }
                 }
@@ -96,11 +96,27 @@ namespace RemoteDesktop.Server
 
             // Đăng ký nhận log cho ListView trên form Remote này
             this._server.OnLogAdded += (msg) => {
-                //UpdateListView(lsvLog, msg);
+                // Sử dụng UIHelper hoặc gọi trực tiếp qua Invoke để an toàn đa luồng
+                UpdateRemoteLog(msg);
             };
         }
 
-
+        private void UpdateRemoteLog(string message)
+        {
+            if (lsvLog.InvokeRequired)
+            {
+                lsvLog.Invoke(new Action(() => UpdateRemoteLog(message)));
+            }
+            else
+            {
+                ListViewItem item = new ListViewItem(new[] {
+            DateTime.Now.ToString("HH:mm:ss"),
+            message
+        });
+                lsvLog.Items.Add(item);
+                item.EnsureVisible();
+            }
+        }
 
 
         private void btnSendChat_Click(object sender, EventArgs e)
