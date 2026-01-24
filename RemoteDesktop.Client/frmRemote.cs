@@ -66,6 +66,10 @@ namespace RemoteDesktop.Client
         // Gửi lệnh nhấn phím
         private void frmRemote_KeyDown(object sender, KeyEventArgs e)
         {
+            if (txtChatInput.Focused)
+            {
+                return;
+            }
             // Gửi mã KeyValue của phím sang Server
             SendInput(1, 3, 0, 0, e.KeyValue);
         }
@@ -141,10 +145,12 @@ namespace RemoteDesktop.Client
                             else if (packet.Type == MyCommand.Disconnect)
                             {
                                 HandleServerDisconnect();
-                            } else if (packet.Type == MyCommand.ServerLog)
+                            }
+                            else if (packet.Type == MyCommand.ServerLog)
                             {
                                 string logMsg = Encoding.UTF8.GetString(packet.Data);
                                 UpdateClientLogView(logMsg);
+                            }
                         }));
                     }
                 }
