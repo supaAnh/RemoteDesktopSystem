@@ -22,9 +22,11 @@ namespace RemoteDesktop.Server
     public partial class frmRemote : Form
     {
         private ServerHandler _server;
-        private TcpClient _targetClient; // Vẫn giữ biến này để tham khảo, nhưng không phụ thuộc hoàn toàn vào nó nữa
-
+        private TcpClient _targetClient; // Vẫn giữ biến này để tham khảo
         private bool _isStreaming = false;
+
+        // [MỚI] Khai báo quản lý Database để lưu log
+        private Database.DatabaseManager _dbManager = new Database.DatabaseManager();
 
         public frmRemote(ServerHandler server, TcpClient client)
         {
@@ -32,19 +34,24 @@ namespace RemoteDesktop.Server
             this._server = server;
             this._targetClient = client;
 
-            // Đăng ký nhận Chat: Khi có bất kỳ ai nhắn, hiện lên khung chat Server
+            // 1. XỬ LÝ KHI NHẬN CHAT TỪ CLIENT
             this._server.OnChatReceived += (sender, message) =>
             {
                 try
                 {
-                    // Lấy IP của người gửi để hiển thị cho rõ
+                    // Lấy IP của người gửi
                     string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+
+                    // Hiện lên khung chat
                     AppendChatHistory($"[{senderIP}]: {message}");
+
+                    // [MỚI] Ghi vào Log và Database
+                    UpdateRemoteLog(senderIP, "Chat: " + message);
                 }
                 catch { }
             };
 
-            // Đăng ký nhận File
+            // 2. XỬ LÝ KHI NHẬN FILE TỪ CLIENT
             this._server.OnFileReceived += (sender, data) =>
             {
                 try
@@ -54,80 +61,106 @@ namespace RemoteDesktop.Server
 
                     if (fileDto != null)
                     {
-                        // Hiển thị lên khung chat của Server
+                        // Hiển thị thông báo lên khung chat
                         AppendChatHistory($"[{senderIP}] đã gửi file: {fileDto.FileName}");
-                        // Gọi hàm lưu file
+                        // Gọi hàm xử lý lưu file
                         HandleIncomingFile(data);
+
+                        // [MỚI] Ghi vào Log và Database
+                        UpdateRemoteLog(senderIP, "Gửi file: " + fileDto.FileName);
                     }
                 }
                 catch { }
             };
 
-            // Đăng ký nhận log cho ListView trên form Remote này
+            // 3. XỬ LÝ LOG HỆ THỐNG (Kết nối, ngắt kết nối, v.v.)
             this._server.OnLogAdded += (msg) => {
-                UpdateRemoteLog(msg);
+                // Log hệ thống thì để tên là SYSTEM
+                UpdateRemoteLog("SYSTEM", msg);
             };
         }
 
         private void frmRemote_Load(object sender, EventArgs e)
         {
+            // [MỚI] Cấu hình bảng Log (ListView)
+            lsvLog.View = View.Details;           // Chế độ xem chi tiết
+            lsvLog.GridLines = true;              // Kẻ bảng
+            lsvLog.FullRowSelect = true;          // Chọn cả dòng khi click
+
+            // Xóa cột cũ (nếu có) và thêm 3 cột mới
+            lsvLog.Columns.Clear();
+            lsvLog.Columns.Add("Thời gian", 100);
+            lsvLog.Columns.Add("IP / Nguồn", 150);
+            lsvLog.Columns.Add("Hành động", 500); // Cột này rộng để hiển thị nội dung
+
             // Gọi hàm StartStreaming khi Form bắt đầu hiển thị
             StartStreaming();
         }
 
-        // --- HÀM ĐÃ SỬA: STREAM MÀN HÌNH (BROADCAST) ---
+        // --- HÀM [MỚI]: GHI LOG VÀO UI VÀ DATABASE ---
+        private void UpdateRemoteLog(string ip, string action)
+        {
+            // 1. Lưu vào Database (Chạy luồng riêng để không làm đơ giao diện)
+            new Thread(() => {
+                _dbManager.SaveLog(ip, action);
+            }).Start();
+
+            // 2. Hiển thị lên giao diện (ListView)
+            if (lsvLog.InvokeRequired)
+            {
+                lsvLog.Invoke(new Action(() => UpdateRemoteLog(ip, action)));
+            }
+            else
+            {
+                ListViewItem item = new ListViewItem(new[] {
+                    DateTime.Now.ToString("HH:mm:ss"), // Cột 1: Thời gian
+                    ip,                                // Cột 2: IP
+                    action                             // Cột 3: Hành động
+                });
+
+                // Tô màu đỏ cho thông báo hệ thống hoặc Server, màu xanh cho Client
+                if (ip == "SERVER" || ip == "SYSTEM")
+                    item.ForeColor = Color.Red;
+                else
+                    item.ForeColor = Color.Blue;
+
+                lsvLog.Items.Add(item);
+
+                // Tự động cuộn xuống dòng cuối cùng
+                if (lsvLog.Items.Count > 0)
+                {
+                    try { lsvLog.Items[lsvLog.Items.Count - 1].EnsureVisible(); } catch { }
+                }
+            }
+        }
+        // ------------------------------------------------
+
         private void StartStreaming()
         {
             _isStreaming = true;
             Thread screenThread = new Thread(() =>
             {
-                // Vòng lặp chỉ dựa vào biến cờ _isStreaming, không phụ thuộc vào client cụ thể nào
                 while (_isStreaming)
                 {
                     try
                     {
-                        // 1. Chụp màn hình
                         byte[] screenData = RemoteDesktop.Server.Services.ScreenCapturer.CaptureDesktop();
-
-                        // 2. Tạo gói tin ScreenUpdate
                         var packet = new Packet
                         {
                             Type = CommandType.ScreenUpdate,
                             Data = screenData
                         };
-
-                        // 3. QUAN TRỌNG: Gửi Broadcast cho TẤT CẢ Client đang kết nối
                         _server.BroadcastPacket(packet);
-
-                        // Đợi một khoảng ngắn để giảm tải CPU và mạng
                         Thread.Sleep(100);
                     }
                     catch
                     {
-                        // Nếu có lỗi (ví dụ chưa có ai kết nối), cứ tiếp tục lặp, không break
+                        // Bỏ qua lỗi
                     }
                 }
             });
             screenThread.IsBackground = true;
             screenThread.Start();
-        }
-        // ------------------------------------------------
-
-        private void UpdateRemoteLog(string message)
-        {
-            if (lsvLog.InvokeRequired)
-            {
-                lsvLog.Invoke(new Action(() => UpdateRemoteLog(message)));
-            }
-            else
-            {
-                ListViewItem item = new ListViewItem(new[] {
-                    DateTime.Now.ToString("HH:mm:ss"),
-                    message
-                });
-                lsvLog.Items.Add(item);
-                try { item.EnsureVisible(); } catch { }
-            }
         }
 
         private void btnSendChat_Click(object sender, EventArgs e)
@@ -137,18 +170,18 @@ namespace RemoteDesktop.Server
 
             try
             {
-                // Tạo gói tin Chat của Server
                 var packet = new Packet
                 {
                     Type = CommandType.Chat,
                     Data = Encoding.UTF8.GetBytes($"[SERVER]: {msg}")
                 };
 
-                // Gửi cho TẤT CẢ các Client đang online
                 _server.BroadcastPacket(packet);
-
-                // Hiển thị nội dung vừa gửi lên khung chat của chính Server
                 AppendChatHistory($"[SERVER]: {msg}");
+
+                // [MỚI] Cũng ghi lại hành động của chính Server
+                UpdateRemoteLog("SERVER", "Gửi tin nhắn: " + msg);
+
                 txtChatInput.Clear();
             }
             catch (Exception ex)
@@ -177,9 +210,11 @@ namespace RemoteDesktop.Server
                             Data = DataHelper.Serialize(fileDto)
                         };
 
-                        // Server gửi cho tất cả Client
                         _server.BroadcastPacket(packet);
                         AppendChatHistory($"[Hệ thống]: Server đã gửi file {fileDto.FileName}");
+
+                        // [MỚI] Ghi log Server gửi file
+                        UpdateRemoteLog("SERVER", "Gửi file: " + fileDto.FileName);
                     }
                     catch (Exception ex)
                     {
@@ -210,13 +245,10 @@ namespace RemoteDesktop.Server
                 var fileDto = DataHelper.Deserialize<FilePacketDTO>(rawData);
                 if (fileDto != null)
                 {
-                    // Lưu vào thư mục Downloads
                     string downloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
                     string filePath = Path.Combine(downloadPath, fileDto.FileName);
 
                     File.WriteAllBytes(filePath, fileDto.Buffer);
-
-                    // Mở thư mục và bôi đậm file vừa nhận
                     Process.Start("explorer.exe", $"/select,\"{filePath}\"");
                 }
             }
@@ -226,21 +258,16 @@ namespace RemoteDesktop.Server
             }
         }
 
-        // Ngắt kết nối và trở về frmConnect
         private void btnStopRemote_Click(object sender, EventArgs e)
         {
-            // Dừng luồng gửi màn hình trước
             _isStreaming = false;
-
             if (_server != null)
             {
-                _server.Stop(); // Gửi gói tin Disconnect và đóng Socket
+                _server.Stop();
             }
 
-            // Mở lại form kết nối
             frmConnect connectForm = new frmConnect();
             connectForm.Show();
-
             this.Close();
         }
     }

@@ -19,7 +19,7 @@ namespace RemoteDesktop.Server.Networking
         private bool _isRunning;
         private ListView _logView;
 
-        // Thêm dấu ? để tránh lỗi null
+        // Các sự kiện
         public event Action<string>? OnLogAdded;
         public delegate void ChatReceivedHandler(TcpClient sender, string message);
         public event ChatReceivedHandler? OnChatReceived;
@@ -29,10 +29,7 @@ namespace RemoteDesktop.Server.Networking
         public event FileReceivedHandler? OnFileReceived;
 
         private Database.DatabaseManager _dbManager = new Database.DatabaseManager();
-
-        // --- SỬ DỤNG CONNECTION GUARD ---
         private ConnectionGuard _connectionGuard = new ConnectionGuard();
-        // --------------------------------
 
         public ServerHandler(ListView logView)
         {
@@ -67,14 +64,7 @@ namespace RemoteDesktop.Server.Networking
                 {
                     TcpClient client = _server.AcceptTcpClient();
 
-                    // --- [SỬA ĐỔI QUAN TRỌNG 1] ---
-                    // KHÔNG thêm vào ConnectionGuard ngay lập tức.
-                    // Lý do: Nếu thêm ngay, Server sẽ gửi stream ảnh cho Client này
-                    // trong khi Client đang chờ phản hồi Login -> Gây lỗi "Invalid Response".
-                    // _connectionGuard.AddClient(client);  <-- ĐÃ XÓA/COMMENT
-                    // ------------------------------
-
-                    // Lấy IP để log
+                    // Lấy IP để log tạm
                     string ip = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
                     LogToUI($"Client {ip} đã kết nối TCP (Đang chờ đăng nhập...)");
 
@@ -110,7 +100,6 @@ namespace RemoteDesktop.Server.Networking
             }
             finally
             {
-                // Xóa khỏi danh sách khi thoát
                 _connectionGuard.RemoveClient(client);
                 client.Close();
                 LogToUI($"Client ({clientIP}) đã thoát.");
@@ -136,48 +125,52 @@ namespace RemoteDesktop.Server.Networking
                 case CommandType.Disconnect:
                     client.Close();
                     break;
-
                 case CommandType.InputControl:
-                    // --- QUAN TRỌNG: Truyền client vào để kiểm tra quyền ---
                     HandleInputControl(packet, client);
                     break;
-
                 default:
                     LogToUI($"Nhận loại gói tin không xác định: {packet.Type}");
                     break;
             }
         }
 
-        // --- HÀM XỬ LÝ ĐIỀU KHIỂN (CHUỘT/PHÍM) ---
+        // --- ĐOẠN 1 ĐÃ SỬA: XỬ LÝ ĐIỀU KHIỂN (CÓ LOG CLICK CHUỘT) ---
         private void HandleInputControl(Packet packet, TcpClient sender)
         {
-            // 1. CHỐT CHẶN: Kiểm tra xem người gửi có phải là "Trùm" không?
-            if (!_connectionGuard.IsController(sender))
-            {
-                // Nếu không phải Trùm -> Bỏ qua lệnh này (không làm gì cả)
-                return;
-            }
+            // Kiểm tra xem có phải là người đang nắm quyền điều khiển không
+            if (!_connectionGuard.IsController(sender)) return;
 
-            // 2. Nếu là Trùm -> Thực hiện lệnh như bình thường
             var input = DataHelper.Deserialize<InputDTO>(packet.Data);
             if (input == null) return;
 
+            string clientIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+
             if (input.Type == 0) // Chuột
             {
+                // Action = 0 (Move) -> Không ghi log để tránh lag
+                // Action > 0 (Click Left/Right) -> Ghi log
+                if (input.Action > 0)
+                {
+                    LogToUI($"[{clientIP}] đã Click chuột (Action: {input.Action}).");
+                }
+
                 int sw = Screen.PrimaryScreen.Bounds.Width;
                 int sh = Screen.PrimaryScreen.Bounds.Height;
                 int realX = (input.X * sw) / 1000;
                 int realY = (input.Y * sh) / 1000;
+
                 MouseHelper.SetCursorPos(realX, realY);
                 if (input.Action > 0) MouseHelper.SimulateMouseEvent(input.Action);
             }
             else if (input.Type == 1) // Phím
             {
+                LogToUI($"[{clientIP}] đã nhấn phím (Mã: {input.KeyCode}).");
                 KeyboardHelper.SimulateKeyPress(input.KeyCode);
             }
         }
+        // -----------------------------------------------------------
 
-        // --- CÁC HÀM KHÁC ---
+        // --- ĐOẠN 2 ĐÃ SỬA: XỬ LÝ ĐĂNG NHẬP (CÓ ĐẾM SỐ LƯỢNG) ---
         private void HandleLogin(Packet packet, TcpClient client)
         {
             var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
@@ -190,22 +183,26 @@ namespace RemoteDesktop.Server.Networking
                 Data = Encoding.UTF8.GetBytes(isValid ? "SUCCESS" : "FAIL")
             };
 
-            // Gửi phản hồi ngay lập tức
             NetworkHelper.SendSecurePacket(client.GetStream(), response);
 
             if (isValid)
             {
-                LogToUI($"Người dùng '{loginInfo.Username}' đăng nhập thành công.");
-
-                // --- [SỬA ĐỔI QUAN TRỌNG 2] ---
-                // Chỉ khi đăng nhập thành công mới thêm vào danh sách nhận Stream
+                // Chỉ khi đăng nhập thành công mới thêm vào danh sách quản lý
                 _connectionGuard.AddClient(client);
-                // ------------------------------
+
+                // Đếm số lượng người đang kết nối
+                int count = _connectionGuard.GetConnectedClients().Count;
+
+                LogToUI($"Người dùng '{loginInfo.Username}' đã đăng nhập thành công. (Tổng online: {count})");
 
                 OnClientConnected?.Invoke(client);
             }
-            else LogToUI($"Đăng nhập thất bại: Tài khoản '{loginInfo.Username}' sai.");
+            else
+            {
+                LogToUI($"Đăng nhập thất bại: Tài khoản '{loginInfo.Username}' sai hoặc chưa được duyệt.");
+            }
         }
+        // --------------------------------------------------------
 
         private void HandleRegister(Packet packet, TcpClient client)
         {
@@ -224,6 +221,8 @@ namespace RemoteDesktop.Server.Networking
         {
             string rawMsg = Encoding.UTF8.GetString(packet.Data);
             OnChatReceived?.Invoke(client, rawMsg);
+
+            // Broadcast tin nhắn cho mọi người
             string broadcastContent = $"[{ip}]: {rawMsg}";
             var broadcastPacket = new Packet
             {
@@ -242,10 +241,12 @@ namespace RemoteDesktop.Server.Networking
                 string storagePath = Path.Combine(Application.StartupPath, "ReceivedFiles", fileDto.FileName);
                 Directory.CreateDirectory(Path.GetDirectoryName(storagePath));
                 File.WriteAllBytes(storagePath, fileDto.Buffer);
+
                 string broadcastContent = $"[{ip}] đã gửi file: {fileDto.FileName}";
                 var broadcastPacket = new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes(broadcastContent) };
-                BroadcastPacket(broadcastPacket);
-                BroadcastPacket(packet);
+
+                BroadcastPacket(broadcastPacket); // Báo tin nhắn
+                BroadcastPacket(packet);          // Gửi file thực tế
             }
         }
 
@@ -276,10 +277,8 @@ namespace RemoteDesktop.Server.Networking
 
         public void LogToUI(string message)
         {
-            // --- [SỬA ĐỔI 3] ---
-            // Bắn sự kiện này ra ngoài để frmRemote (form chính) có thể bắt được và hiển thị
+            // Bắn sự kiện ra ngoài (giữ nguyên logic cũ)
             OnLogAdded?.Invoke(message);
-            // -------------------
 
             if (_logView.InvokeRequired)
             {
@@ -289,11 +288,39 @@ namespace RemoteDesktop.Server.Networking
             {
                 try
                 {
-                    ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
+                    // --- LOGIC MỚI: PHÂN TÍCH TIN NHẮN ĐỂ TÔ MÀU VÀ CHIA CỘT ---
+                    string source = "SYSTEM";
+                    string content = message;
+                    Color textColor = Color.Red; // Mặc định là đỏ (Hệ thống)
+
+                    // Kiểm tra xem tin nhắn có định dạng "[IP] Nội dung" hay không
+                    // Ví dụ: "[127.0.0.1] đã Click chuột"
+                    if (message.StartsWith("[") && message.Contains("]"))
+                    {
+                        int closeBracketIndex = message.IndexOf("]");
+                        // Lấy IP từ trong ngoặc [ ... ]
+                        source = message.Substring(1, closeBracketIndex - 1);
+                        // Lấy nội dung phía sau
+                        content = message.Substring(closeBracketIndex + 1).Trim();
+
+                        // Nếu là IP Client thì chuyển màu Xanh
+                        textColor = Color.Blue;
+                    }
+
+                    // Tạo dòng log với 3 cột: Thời gian - Nguồn - Hành động
+                    ListViewItem item = new ListViewItem(new[] {
+                        DateTime.Now.ToString("HH:mm:ss"),
+                        source,
+                        content
+                    });
+
+                    item.ForeColor = textColor; // Áp dụng màu sắc
+
                     _logView.Items.Add(item);
                     item.EnsureVisible();
+                    // -----------------------------------------------------------
                 }
-                catch { } // Bỏ qua lỗi nếu form cũ đã đóng hoặc bị dispose
+                catch { }
             }
         }
 

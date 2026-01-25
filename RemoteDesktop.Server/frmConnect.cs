@@ -3,20 +3,35 @@ using RemoteDesktop.Server.Networking;
 using RemoteDesktop.Server.Utils;
 using System;
 using System.Windows.Forms;
+using System.Drawing; // Thêm thư viện này để dùng Color
 
 namespace RemoteDesktop.Server
 {
     public partial class frmConnect : Form
     {
         private ServerHandler _server;
-
-        // --- THÊM BIẾN NÀY ĐỂ QUẢN LÝ CỬA SỔ DUY NHẤT ---
         private frmRemote _currentRemoteForm = null;
 
         public frmConnect()
         {
             InitializeComponent();
+            InitializeLogView(); // <--- Gọi hàm tạo cột
         }
+
+        // --- HÀM MỚI: TẠO CỘT CHO BẢNG LOG ---
+        private void InitializeLogView()
+        {
+            lsvLog.View = View.Details;
+            lsvLog.GridLines = true;
+            lsvLog.FullRowSelect = true;
+
+            // Xóa cột cũ (nếu có) và thêm 3 cột mới giống hệt frmRemote
+            lsvLog.Columns.Clear();
+            lsvLog.Columns.Add("Thời gian", 100);
+            lsvLog.Columns.Add("Nguồn", 150);     // Cột mới
+            lsvLog.Columns.Add("Hành động", 500); // Cột nội dung
+        }
+        // -------------------------------------
 
         private void btnStart_Click(object sender, EventArgs e)
         {
@@ -24,35 +39,23 @@ namespace RemoteDesktop.Server
             {
                 int port = (int)textPortNum.Value;
 
-                // Chỉ tạo ServerHandler mới nếu chưa có
                 if (_server == null)
                 {
+                    // Truyền lsvLog vào ServerHandler để nó tự ghi log
                     _server = new ServerHandler(lsvLog);
                 }
 
-                // --- SỬA LOGIC SỰ KIỆN KẾT NỐI ---
-                // Thay vì mỗi lần client vào lại new frmRemote(), ta kiểm tra xem form đã mở chưa
                 _server.OnClientConnected += (client) => {
                     this.Invoke(new Action(() => {
-                        // Nếu chưa có form hoặc form cũ đã bị tắt
                         if (_currentRemoteForm == null || _currentRemoteForm.IsDisposed)
                         {
                             this.Hide();
-                            // Tạo form mới và lưu vào biến _currentRemoteForm
                             _currentRemoteForm = new frmRemote(_server, client);
                             _currentRemoteForm.Show();
                         }
-                        else
-                        {
-                            // Nếu form đã mở rồi thì không làm gì cả (Server tự động chấp nhận kết nối ngầm)
-                            // Bạn có thể log thêm dòng này nếu muốn:
-                            // UIHelper.AppendLog(lsvLog, "Có thêm Client mới vừa tham gia.");
-                        }
                     }));
                 };
-                // ----------------------------------
 
-                // Kiểm tra Database
                 DatabaseManager dbManager = new DatabaseManager();
                 _server.LogToUI("Đang kết nối Database...");
 

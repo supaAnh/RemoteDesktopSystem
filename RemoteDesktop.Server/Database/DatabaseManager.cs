@@ -7,16 +7,18 @@ namespace RemoteDesktop.Server.Database
 {
     public class DatabaseManager
     {
-        // Chuỗi kết nối SQL Server
+        // Chuỗi kết nối dự phòng (dùng cho các hàm cũ chưa chuyển sang DatabaseConnect)
         private string connectionString = @"Server=127.0.0.1,1433;Database=RemoteDesktopDB;User Id=sa;Password=@Supanh123;TrustServerCertificate=True;";
 
         public void InitializeDatabase()
         {
-            // Sử dụng DatabaseConnect.GetConnection() thay vì tự tạo
+            // Sử dụng DatabaseConnect.GetConnection() để đảm bảo đồng bộ
             using (var connection = DatabaseConnect.GetConnection())
             {
                 if (connection == null) return;
                 connection.Open();
+
+                // 1. TẠO BẢNG USERS (Cũ - Giữ nguyên)
                 string createTableQuery = @"
                     IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
                     BEGIN
@@ -35,8 +37,49 @@ namespace RemoteDesktop.Server.Database
                 {
                     command.ExecuteNonQuery();
                 }
+
+                // 2. TẠO BẢNG SERVERLOGS (MỚI - Thêm vào đây)
+                string createLogsTable = @"
+                    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ServerLogs')
+                    BEGIN
+                        CREATE TABLE ServerLogs (
+                            Id INT PRIMARY KEY IDENTITY(1,1),
+                            IPAddress NVARCHAR(50),
+                            Action NVARCHAR(MAX),
+                            CreatedAt DATETIME DEFAULT GETDATE()
+                        );
+                    END;";
+                using (var command = new SqlCommand(createLogsTable, connection))
+                {
+                    command.ExecuteNonQuery();
+                }
             }
         }
+
+        // --- HÀM MỚI: LƯU LOG VÀO DATABASE ---
+        public void SaveLog(string ip, string action)
+        {
+            try
+            {
+                using (var connection = DatabaseConnect.GetConnection())
+                {
+                    if (connection == null) return;
+                    connection.Open();
+                    string query = "INSERT INTO ServerLogs (IPAddress, Action, CreatedAt) VALUES (@ip, @action, GETDATE())";
+                    using (var command = new SqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@ip", ip);
+                        command.Parameters.AddWithValue("@action", action);
+                        command.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Lỗi lưu Log DB: " + ex.Message);
+            }
+        }
+        // -------------------------------------
 
         public bool ValidateUser(string username, string password)
         {
