@@ -8,35 +8,81 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 using CommandType = RemoteDesktop.Common.Models.CommandType;
-
 
 namespace RemoteDesktop.Server
 {
     public partial class frmRemote : Form
     {
         private ServerHandler _server;
-        private TcpClient _targetClient; // Lưu trữ client đang kết nối
-
+        private TcpClient _targetClient; // Vẫn giữ biến này để tham khảo, nhưng không phụ thuộc hoàn toàn vào nó nữa
 
         private bool _isStreaming = false;
+
+        public frmRemote(ServerHandler server, TcpClient client)
+        {
+            InitializeComponent();
+            this._server = server;
+            this._targetClient = client;
+
+            // Đăng ký nhận Chat: Khi có bất kỳ ai nhắn, hiện lên khung chat Server
+            this._server.OnChatReceived += (sender, message) =>
+            {
+                try
+                {
+                    // Lấy IP của người gửi để hiển thị cho rõ
+                    string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+                    AppendChatHistory($"[{senderIP}]: {message}");
+                }
+                catch { }
+            };
+
+            // Đăng ký nhận File
+            this._server.OnFileReceived += (sender, data) =>
+            {
+                try
+                {
+                    string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+                    var fileDto = DataHelper.Deserialize<FilePacketDTO>(data);
+
+                    if (fileDto != null)
+                    {
+                        // Hiển thị lên khung chat của Server
+                        AppendChatHistory($"[{senderIP}] đã gửi file: {fileDto.FileName}");
+                        // Gọi hàm lưu file
+                        HandleIncomingFile(data);
+                    }
+                }
+                catch { }
+            };
+
+            // Đăng ký nhận log cho ListView trên form Remote này
+            this._server.OnLogAdded += (msg) => {
+                UpdateRemoteLog(msg);
+            };
+        }
+
         private void frmRemote_Load(object sender, EventArgs e)
         {
             // Gọi hàm StartStreaming khi Form bắt đầu hiển thị
             StartStreaming();
         }
-        //Stream MÀN HÌNH
+
+        // --- HÀM ĐÃ SỬA: STREAM MÀN HÌNH (BROADCAST) ---
         private void StartStreaming()
         {
             _isStreaming = true;
             Thread screenThread = new Thread(() =>
             {
-                while (_isStreaming && _targetClient.Connected)
+                // Vòng lặp chỉ dựa vào biến cờ _isStreaming, không phụ thuộc vào client cụ thể nào
+                while (_isStreaming)
                 {
                     try
                     {
@@ -46,60 +92,26 @@ namespace RemoteDesktop.Server
                         // 2. Tạo gói tin ScreenUpdate
                         var packet = new Packet
                         {
-                            Type = RemoteDesktop.Common.Models.CommandType.ScreenUpdate,
+                            Type = CommandType.ScreenUpdate,
                             Data = screenData
                         };
 
-                        // 3. Gửi cho Client đang kết nối
-                        _server.SendSecurePacket(_targetClient.GetStream(), packet);
+                        // 3. QUAN TRỌNG: Gửi Broadcast cho TẤT CẢ Client đang kết nối
+                        _server.BroadcastPacket(packet);
 
-                        // Đợi một khoảng ngắn để tránh quá tải mạng
-                        Thread.Sleep(300);
+                        // Đợi một khoảng ngắn để giảm tải CPU và mạng
+                        Thread.Sleep(100);
                     }
-                    catch { break; }
+                    catch
+                    {
+                        // Nếu có lỗi (ví dụ chưa có ai kết nối), cứ tiếp tục lặp, không break
+                    }
                 }
             });
             screenThread.IsBackground = true;
             screenThread.Start();
         }
-
-
-        public frmRemote(ServerHandler server, TcpClient client)
-        {
-            InitializeComponent();
-            this._server = server;
-            this._targetClient = client; // Client mà bạn đang tập trung điều khiển
-
-            // Đăng ký nhận Chat: Khi có bất kỳ ai nhắn, hiện lên khung chat Server
-            this._server.OnChatReceived += (sender, message) =>
-            {
-                // Lấy IP của người gửi để hiển thị cho rõ
-                string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
-                AppendChatHistory($"[{senderIP}]: {message}");
-            };
-
-            // Đăng ký nhận File
-            this._server.OnFileReceived += (sender, data) =>
-            {
-                string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
-                var fileDto = DataHelper.Deserialize<FilePacketDTO>(data);
-
-                if (fileDto != null)
-                {
-                    // Hiển thị lên khung chat của Server: [IP] đã gửi file: [Tên file]
-                    AppendChatHistory($"[{senderIP}] đã gửi file: {fileDto.FileName}");
-
-                    // Gọi hàm lưu file và mở thư mục như đã thảo luận trước đó
-                    HandleIncomingFile(data);
-                }
-            };
-
-            // Đăng ký nhận log cho ListView trên form Remote này
-            this._server.OnLogAdded += (msg) => {
-                // Sử dụng UIHelper hoặc gọi trực tiếp qua Invoke để an toàn đa luồng
-                UpdateRemoteLog(msg);
-            };
-        }
+        // ------------------------------------------------
 
         private void UpdateRemoteLog(string message)
         {
@@ -110,14 +122,13 @@ namespace RemoteDesktop.Server
             else
             {
                 ListViewItem item = new ListViewItem(new[] {
-            DateTime.Now.ToString("HH:mm:ss"),
-            message
-        });
+                    DateTime.Now.ToString("HH:mm:ss"),
+                    message
+                });
                 lsvLog.Items.Add(item);
-                item.EnsureVisible();
+                try { item.EnsureVisible(); } catch { }
             }
         }
-
 
         private void btnSendChat_Click(object sender, EventArgs e)
         {
@@ -129,7 +140,7 @@ namespace RemoteDesktop.Server
                 // Tạo gói tin Chat của Server
                 var packet = new Packet
                 {
-                    Type = RemoteDesktop.Common.Models.CommandType.Chat,
+                    Type = CommandType.Chat,
                     Data = Encoding.UTF8.GetBytes($"[SERVER]: {msg}")
                 };
 
@@ -177,6 +188,7 @@ namespace RemoteDesktop.Server
                 }
             }
         }
+
         private void AppendChatHistory(string text)
         {
             if (txtChatHistory.InvokeRequired)
@@ -186,7 +198,6 @@ namespace RemoteDesktop.Server
             else
             {
                 txtChatHistory.AppendText(text + Environment.NewLine);
-                // Tự động cuộn xuống dòng cuối cùng
                 txtChatHistory.SelectionStart = txtChatHistory.Text.Length;
                 txtChatHistory.ScrollToCaret();
             }
@@ -215,22 +226,22 @@ namespace RemoteDesktop.Server
             }
         }
 
-
         // Ngắt kết nối và trở về frmConnect
         private void btnStopRemote_Click(object sender, EventArgs e)
         {
+            // Dừng luồng gửi màn hình trước
+            _isStreaming = false;
+
             if (_server != null)
             {
-                _server.Stop(); //gửi gói tin Disconnect trước
+                _server.Stop(); // Gửi gói tin Disconnect và đóng Socket
             }
 
-            _isStreaming = false;
+            // Mở lại form kết nối
             frmConnect connectForm = new frmConnect();
             connectForm.Show();
+
             this.Close();
         }
-
-
-
     }
 }

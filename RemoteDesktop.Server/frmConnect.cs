@@ -1,41 +1,61 @@
 ﻿using RemoteDesktop.Server.Database;
 using RemoteDesktop.Server.Networking;
-using RemoteDesktop.Server.Networking;
 using RemoteDesktop.Server.Utils;
+using System;
+using System.Windows.Forms;
+
 namespace RemoteDesktop.Server
 {
     public partial class frmConnect : Form
     {
         private ServerHandler _server;
 
+        // --- THÊM BIẾN NÀY ĐỂ QUẢN LÝ CỬA SỔ DUY NHẤT ---
+        private frmRemote _currentRemoteForm = null;
+
         public frmConnect()
         {
             InitializeComponent();
         }
-
-
 
         private void btnStart_Click(object sender, EventArgs e)
         {
             try
             {
                 int port = (int)textPortNum.Value;
-                _server = new ServerHandler(lsvLog);
 
-                // Đăng ký sự kiện chuyển form khi có kết nối (đã có trong code của bạn)
+                // Chỉ tạo ServerHandler mới nếu chưa có
+                if (_server == null)
+                {
+                    _server = new ServerHandler(lsvLog);
+                }
+
+                // --- SỬA LOGIC SỰ KIỆN KẾT NỐI ---
+                // Thay vì mỗi lần client vào lại new frmRemote(), ta kiểm tra xem form đã mở chưa
                 _server.OnClientConnected += (client) => {
                     this.Invoke(new Action(() => {
-                        this.Hide();
-                        frmRemote remoteForm = new frmRemote(_server, client);
-                        remoteForm.Show();
+                        // Nếu chưa có form hoặc form cũ đã bị tắt
+                        if (_currentRemoteForm == null || _currentRemoteForm.IsDisposed)
+                        {
+                            this.Hide();
+                            // Tạo form mới và lưu vào biến _currentRemoteForm
+                            _currentRemoteForm = new frmRemote(_server, client);
+                            _currentRemoteForm.Show();
+                        }
+                        else
+                        {
+                            // Nếu form đã mở rồi thì không làm gì cả (Server tự động chấp nhận kết nối ngầm)
+                            // Bạn có thể log thêm dòng này nếu muốn:
+                            // UIHelper.AppendLog(lsvLog, "Có thêm Client mới vừa tham gia.");
+                        }
                     }));
                 };
+                // ----------------------------------
 
                 // Kiểm tra Database
-                Database.DatabaseManager dbManager = new Database.DatabaseManager();
+                DatabaseManager dbManager = new DatabaseManager();
                 _server.LogToUI("Đang kết nối Database...");
 
-                // Thêm try-catch riêng cho DB để không làm crash toàn bộ nút Start
                 try
                 {
                     dbManager.InitializeDatabase();
@@ -44,7 +64,7 @@ namespace RemoteDesktop.Server
                 catch (Exception dbEx)
                 {
                     MessageBox.Show("Lỗi kết nối SQL Server: " + dbEx.Message, "Lỗi DB");
-                    return; // Dừng lại nếu không có DB
+                    return;
                 }
 
                 _server.StartListening(port);
@@ -52,7 +72,7 @@ namespace RemoteDesktop.Server
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi khởi động: " + ex.ToString()); // Dùng ex.ToString() để xem chi tiết lỗi
+                MessageBox.Show("Lỗi khởi động: " + ex.ToString());
             }
         }
 

@@ -67,17 +67,16 @@ namespace RemoteDesktop.Server.Networking
                 {
                     TcpClient client = _server.AcceptTcpClient();
 
-                    // 1. Thêm vào danh sách (Ai cũng được vào)
-                    _connectionGuard.AddClient(client);
+                    // --- [SỬA ĐỔI QUAN TRỌNG 1] ---
+                    // KHÔNG thêm vào ConnectionGuard ngay lập tức.
+                    // Lý do: Nếu thêm ngay, Server sẽ gửi stream ảnh cho Client này
+                    // trong khi Client đang chờ phản hồi Login -> Gây lỗi "Invalid Response".
+                    // _connectionGuard.AddClient(client);  <-- ĐÃ XÓA/COMMENT
+                    // ------------------------------
 
-                    // 2. Kiểm tra xem có phải là người đầu tiên không để thông báo
+                    // Lấy IP để log
                     string ip = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
-                    bool isAdmin = _connectionGuard.IsController(client);
-
-                    if (isAdmin)
-                        LogToUI($"Client {ip} đã kết nối (Quyền: ĐIỀU KHIỂN).");
-                    else
-                        LogToUI($"Client {ip} đã kết nối (Quyền: CHỈ XEM).");
+                    LogToUI($"Client {ip} đã kết nối TCP (Đang chờ đăng nhập...)");
 
                     Thread t = new Thread(() => HandleConnectedClient(client));
                     t.IsBackground = true;
@@ -178,21 +177,31 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        // --- CÁC HÀM KHÁC GIỮ NGUYÊN ---
+        // --- CÁC HÀM KHÁC ---
         private void HandleLogin(Packet packet, TcpClient client)
         {
             var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
             if (loginInfo == null) return;
             bool isValid = _dbManager.ValidateUser(loginInfo.Username, loginInfo.Password);
+
             Packet response = new Packet
             {
                 Type = CommandType.Login,
                 Data = Encoding.UTF8.GetBytes(isValid ? "SUCCESS" : "FAIL")
             };
+
+            // Gửi phản hồi ngay lập tức
             NetworkHelper.SendSecurePacket(client.GetStream(), response);
+
             if (isValid)
             {
                 LogToUI($"Người dùng '{loginInfo.Username}' đăng nhập thành công.");
+
+                // --- [SỬA ĐỔI QUAN TRỌNG 2] ---
+                // Chỉ khi đăng nhập thành công mới thêm vào danh sách nhận Stream
+                _connectionGuard.AddClient(client);
+                // ------------------------------
+
                 OnClientConnected?.Invoke(client);
             }
             else LogToUI($"Đăng nhập thất bại: Tài khoản '{loginInfo.Username}' sai.");
@@ -267,12 +276,24 @@ namespace RemoteDesktop.Server.Networking
 
         public void LogToUI(string message)
         {
-            if (_logView.InvokeRequired) _logView.Invoke(new Action(() => LogToUI(message)));
+            // --- [SỬA ĐỔI 3] ---
+            // Bắn sự kiện này ra ngoài để frmRemote (form chính) có thể bắt được và hiển thị
+            OnLogAdded?.Invoke(message);
+            // -------------------
+
+            if (_logView.InvokeRequired)
+            {
+                _logView.Invoke(new Action(() => LogToUI(message)));
+            }
             else
             {
-                ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
-                _logView.Items.Add(item);
-                item.EnsureVisible();
+                try
+                {
+                    ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
+                    _logView.Items.Add(item);
+                    item.EnsureVisible();
+                }
+                catch { } // Bỏ qua lỗi nếu form cũ đã đóng hoặc bị dispose
             }
         }
 
