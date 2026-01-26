@@ -16,7 +16,6 @@ namespace RemoteDesktop.Server.Networking
 {
     public class ServerHandler
     {
-        // [THAY ĐỔI 1] Dùng Socket thay vì TcpListener
         private Socket _serverSocket;
         private bool _isRunning;
         private ListView _logView;
@@ -42,13 +41,10 @@ namespace RemoteDesktop.Server.Networking
         {
             try
             {
-                // [THAY ĐỔI 2] Khởi tạo Socket theo mô hình trong ảnh
                 IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, port);
                 _serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 _serverSocket.Bind(endPoint);
                 _serverSocket.Listen(10);
-
-                // [QUAN TRỌNG] Chuyển sang chế độ Non-blocking như yêu cầu
                 _serverSocket.Blocking = false;
 
                 _isRunning = true;
@@ -65,22 +61,16 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        // [THAY ĐỔI 3] Vòng lặp Accept Client theo chuẩn Non-blocking (Giống ảnh)
         private void AcceptClient()
         {
             while (_isRunning)
             {
                 try
                 {
-                    // Thử chấp nhận kết nối
                     Socket clientSocket = _serverSocket.Accept();
-
-                    // Nếu thành công (không bị lỗi), xử lý client mới
                     string ip = ((IPEndPoint)clientSocket.RemoteEndPoint).Address.ToString();
                     LogToUI($"Client {ip} đã kết nối (Non-blocking Socket).");
 
-                    // Chuyển Socket thành TcpClient để tương thích với code xử lý cũ (NetworkStream)
-                    // Lưu ý: Ta cần chuyển lại Blocking = true cho Socket con để đảm bảo truyền File/Ảnh ổn định
                     clientSocket.Blocking = true;
                     TcpClient tcpClient = new TcpClient { Client = clientSocket };
 
@@ -90,10 +80,8 @@ namespace RemoteDesktop.Server.Networking
                 }
                 catch (SocketException ex)
                 {
-                    // [QUAN TRỌNG] Bắt lỗi WouldBlock - Đây là dấu hiệu của Non-blocking khi chưa có ai kết nối
                     if (ex.SocketErrorCode == SocketError.WouldBlock)
                     {
-                        // Chưa có kết nối nào, tiếp tục vòng lặp (giống mô phỏng công việc khác)
                         Thread.Sleep(100);
                     }
                     else
@@ -108,7 +96,6 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        // --- Các phần xử lý bên dưới giữ nguyên logic ---
         private void HandleConnectedClient(TcpClient client)
         {
             string clientIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
@@ -130,7 +117,32 @@ namespace RemoteDesktop.Server.Networking
             }
             finally
             {
-                _connectionGuard.RemoveClient(client);
+                // [THAY ĐỔI TẠI ĐÂY]
+                // 1. Xóa Client và kiểm tra xem có ai được thăng chức lên làm Admin không
+                TcpClient? newAdmin = _connectionGuard.RemoveClient(client);
+
+                // 2. Nếu có người kế thừa, gửi thông báo cho họ
+                if (newAdmin != null)
+                {
+                    try
+                    {
+                        string msg = "Người điều khiển trước đã thoát. Bạn hiện là người có quyền điều khiển (Admin).";
+                        var notifyPacket = new Packet
+                        {
+                            Type = CommandType.Chat, // Dùng kênh Chat để hiện thông báo
+                            Data = Encoding.UTF8.GetBytes("[HỆ THỐNG]: " + msg)
+                        };
+
+                        // Gửi riêng cho người đó
+                        NetworkHelper.SendSecurePacket(newAdmin.GetStream(), notifyPacket);
+                        LogToUI($"-> Đã chuyển quyền Admin cho Client kế tiếp.");
+                    }
+                    catch (Exception ex)
+                    {
+                        LogToUI("Lỗi gửi thông báo chuyển quyền: " + ex.Message);
+                    }
+                }
+
                 client.Close();
                 LogToUI($"[{clientIP}] Client đã thoát.");
             }
@@ -157,7 +169,7 @@ namespace RemoteDesktop.Server.Networking
             if (input == null) return;
             string clientIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
 
-            if (input.Type == 0) // Chuột
+            if (input.Type == 0)
             {
                 if (input.Action > 0) LogToUI($"[{clientIP}] Click chuột (Action: {input.Action}).");
                 int sw = Screen.PrimaryScreen.Bounds.Width;
@@ -165,7 +177,7 @@ namespace RemoteDesktop.Server.Networking
                 MouseHelper.SetCursorPos((input.X * sw) / 1000, (input.Y * sh) / 1000);
                 if (input.Action > 0) MouseHelper.SimulateMouseEvent(input.Action);
             }
-            else if (input.Type == 1) // Phím
+            else if (input.Type == 1)
             {
                 LogToUI($"[{clientIP}] Nhấn phím (Mã: {input.KeyCode}).");
                 KeyboardHelper.SimulateKeyPress(input.KeyCode);

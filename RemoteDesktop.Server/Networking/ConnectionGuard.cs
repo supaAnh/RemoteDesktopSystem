@@ -23,21 +23,31 @@ namespace RemoteDesktop.Server.Networking
         }
 
         /// <summary>
-        /// Xóa client khi họ thoát
+        /// [CẬP NHẬT] Xóa client và trả về người điều khiển mới (nếu có sự chuyển giao).
+        /// Trả về null nếu không có sự thay đổi Admin.
         /// </summary>
-        public void RemoveClient(TcpClient client)
+        public TcpClient? RemoveClient(TcpClient client)
         {
             lock (_lock)
             {
-                if (_clients.Contains(client))
+                int index = _clients.IndexOf(client);
+                if (index != -1)
                 {
                     _clients.Remove(client);
+
+                    // Nếu người vừa bị xóa là Admin (đứng đầu list - index 0) 
+                    // VÀ sau khi xóa vẫn còn người khác trong list (người thứ 2 lên thế chỗ)
+                    if (index == 0 && _clients.Count > 0)
+                    {
+                        return _clients[0]; // Trả về tân Admin
+                    }
                 }
+                return null;
             }
         }
 
         /// <summary>
-        /// [QUAN TRỌNG] Kiểm tra xem client này có quyền điều khiển không?
+        /// Kiểm tra xem client này có quyền điều khiển không?
         /// Logic: Chỉ người đứng đầu danh sách (Index 0) mới được quyền.
         /// </summary>
         public bool IsController(TcpClient client)

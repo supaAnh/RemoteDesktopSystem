@@ -34,7 +34,6 @@
             txtChatInput = new TextBox();
             txtChatHistory = new TextBox();
             picScreen = new PictureBox();
-            lsvLog = new ListView();
             openFileDialog1 = new OpenFileDialog();
             btnDisconnect = new Button();
             pnlSideBar.SuspendLayout();
@@ -101,15 +100,6 @@
             picScreen.MouseMove += picScreen_MouseMove;
             picScreen.MouseUp += picScreen_MouseUp;
             // 
-            // lsvLog
-            // 
-            lsvLog.Location = new Point(12, 553);
-            lsvLog.Name = "lsvLog";
-            lsvLog.Size = new Size(1180, 189);
-            lsvLog.TabIndex = 7;
-            lsvLog.UseCompatibleStateImageBehavior = false;
-            lsvLog.View = View.Details;
-            // 
             // openFileDialog1
             // 
             openFileDialog1.FileName = "openFileDialog1";
@@ -129,9 +119,8 @@
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1204, 754);
+            ClientSize = new Size(1204, 557);
             Controls.Add(btnDisconnect);
-            Controls.Add(lsvLog);
             Controls.Add(picScreen);
             Controls.Add(pnlSideBar);
             KeyPreview = true;
@@ -153,7 +142,6 @@
         private TextBox txtChatInput;
         private TextBox txtChatHistory;
         private PictureBox picScreen;
-        private ListView lsvLog;
         private OpenFileDialog openFileDialog1;
         private Button btnDisconnect;
     }

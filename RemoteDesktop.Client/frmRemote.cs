@@ -115,13 +115,15 @@ namespace RemoteDesktop.Client
         }
 
         // nhận dữ liệu từ Server
+        // Trong file: RemoteDesktop.Client/frmRemote.cs
+        // Tại hàm: ReceiveLoop
+
         private void ReceiveLoop()
         {
             while (_client != null && _client.IsConnected)
             {
                 try
                 {
-                    // Khai báo rõ ràng biến stream cho mỗi lần lặp nhận gói tin
                     var currentStream = _client.GetStream();
                     var packet = NetworkHelper.ReceiveSecurePacket(currentStream);
 
@@ -129,11 +131,27 @@ namespace RemoteDesktop.Client
                     {
                         this.Invoke(new Action(() =>
                         {
+                            // --- SỬA ĐOẠN NÀY ---
                             if (packet.Type == MyCommand.Chat)
                             {
                                 string msg = Encoding.UTF8.GetString(packet.Data);
-                                AppendChatHistory(msg); // Hiển thị tin nhắn từ Server
+
+                                // [MỚI] Kiểm tra nếu là tin nhắn từ Hệ thống thì hiện Popup
+                                if (msg.Contains("[HỆ THỐNG]:"))
+                                {
+                                    // Cắt bỏ chữ [HỆ THỐNG]: để nội dung đẹp hơn
+                                    string content = msg.Replace("[HỆ THỐNG]:", "").Trim();
+
+                                    MessageBox.Show(content,
+                                                    "Thông báo Chuyển Quyền",
+                                                    MessageBoxButtons.OK,
+                                                    MessageBoxIcon.Information);
+                                }
+
+                                AppendChatHistory(msg); // Vẫn hiện vào khung chat để lưu lại
                             }
+                            // ---------------------
+
                             else if (packet.Type == MyCommand.FileTransfer)
                             {
                                 HandleIncomingFile(packet.Data);
@@ -146,11 +164,7 @@ namespace RemoteDesktop.Client
                             {
                                 HandleServerDisconnect();
                             }
-                            else if (packet.Type == MyCommand.ServerLog)
-                            {
-                                string logMsg = Encoding.UTF8.GetString(packet.Data);
-                                UpdateClientLogView(logMsg);
-                            }
+                            
                         }));
                     }
                 }
@@ -162,23 +176,8 @@ namespace RemoteDesktop.Client
             }
         }
 
-        // Hàm bổ trợ cập nhật lsvLog trên giao diện Client
-        private void UpdateClientLogView(string message)
-        {
-            if (lsvLog.InvokeRequired)
-            {
-                lsvLog.Invoke(new Action(() => UpdateClientLogView(message)));
-            }
-            else
-            {
-                var item = new ListViewItem(new[] {
-            DateTime.Now.ToString("HH:mm:ss"),
-            message
-        });
-                lsvLog.Items.Add(item);
-                item.EnsureVisible();
-            }
-        }
+        
+       
 
         private void AppendChatHistory(string message)
         {
