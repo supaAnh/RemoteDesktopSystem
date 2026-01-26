@@ -31,6 +31,7 @@
             pictureBox1 = new PictureBox();
             listBox1 = new ListBox();
             label1 = new Label();
+            cboSessions = new ComboBox();
             ((System.ComponentModel.ISupportInitialize)pictureBox1).BeginInit();
             SuspendLayout();
             // 
@@ -60,11 +61,20 @@
             label1.Text = "Lịch Sử Đăng Nhập";
             label1.Click += label1_Click;
             // 
+            // cboSessions
+            // 
+            cboSessions.FormattingEnabled = true;
+            cboSessions.Location = new Point(154, 6);
+            cboSessions.Name = "cboSessions";
+            cboSessions.Size = new Size(212, 28);
+            cboSessions.TabIndex = 3;
+            // 
             // frmHistory
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(851, 450);
+            Controls.Add(cboSessions);
             Controls.Add(label1);
             Controls.Add(listBox1);
             Controls.Add(pictureBox1);
@@ -81,5 +91,6 @@
         private PictureBox pictureBox1;
         private ListBox listBox1;
         private Label label1;
+        private ComboBox cboSessions;
     }
 }

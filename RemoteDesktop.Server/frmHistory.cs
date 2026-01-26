@@ -9,117 +9,102 @@ namespace RemoteDesktop.Server
 {
     public partial class frmHistory : Form
     {
+        // Chỉ cần khai báo DatabaseManager, các nút khác Designer đã lo rồi
         private DatabaseManager _db = new DatabaseManager();
-        private ComboBox cboSessions; // [MỚI] Hộp chọn phiên
-        private ListBox lstRecords;
-        private PictureBox picRecord;
-        private Label lblInfo;
 
         public frmHistory()
         {
             InitializeComponent();
-            SetupUI();
-            LoadSessions(); // Tải danh sách các lần kết nối
+            SetupEvents();  // Cấu hình sự kiện
+            LoadSessions(); // Tải dữ liệu ngay khi mở form
         }
 
-        private void SetupUI()
+        // Cấu hình các thiết lập phụ mà kéo thả không làm được
+        private void SetupEvents()
         {
-            this.Text = "Lịch sử Record (Phân loại theo lần kết nối)";
-            this.Size = new Size(1100, 700);
-            this.StartPosition = FormStartPosition.CenterScreen;
+            // Cấu hình hiển thị cho ComboBox và ListBox
+            // Lưu ý: Tên biến cboSessions, listBox1, pictureBox1 phải khớp với tên bạn đặt trong Designer
+            cboSessions.DropDownStyle = ComboBoxStyle.DropDownList;
 
-            // 1. [MỚI] Label và ComboBox chọn Phiên
-            Label lblSession = new Label() { Text = "Chọn lần kết nối:", Location = new Point(10, 10), AutoSize = true, Font = new Font("Arial", 10, FontStyle.Bold) };
-            this.Controls.Add(lblSession);
-
-            cboSessions = new ComboBox();
-            cboSessions.Location = new Point(150, 8);
-            cboSessions.Size = new Size(300, 30);
-            cboSessions.DropDownStyle = ComboBoxStyle.DropDownList; // Chỉ được chọn, ko được nhập
+            // Gán sự kiện khi chọn dòng
             cboSessions.SelectedIndexChanged += CboSessions_SelectedIndexChanged;
-            this.Controls.Add(cboSessions);
+            listBox1.SelectedIndexChanged += ListBox1_SelectedIndexChanged;
 
-            // 2. Danh sách ảnh (Listbox)
-            lstRecords = new ListBox();
-            lstRecords.Location = new Point(10, 50);
-            lstRecords.Size = new Size(280, 600);
-            lstRecords.Font = new Font("Consolas", 10);
-            lstRecords.SelectedIndexChanged += LstRecords_SelectedIndexChanged;
-            this.Controls.Add(lstRecords);
-
-            // 3. Khung ảnh
-            picRecord = new PictureBox();
-            picRecord.Location = new Point(300, 50);
-            picRecord.Size = new Size(770, 600);
-            picRecord.SizeMode = PictureBoxSizeMode.Zoom;
-            picRecord.BorderStyle = BorderStyle.FixedSingle;
-            picRecord.BackColor = Color.Black;
-            this.Controls.Add(picRecord);
-
-            // 4. Info
-            lblInfo = new Label() { Text = "...", Location = new Point(470, 10), AutoSize = true, ForeColor = Color.Blue };
-            this.Controls.Add(lblInfo);
+            // Cấu hình PictureBox
+            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
+            pictureBox1.BackColor = Color.Black;
         }
 
-        // Tải danh sách các phiên (Sessions) vào ComboBox
+        // 1. Tải danh sách các phiên vào ComboBox
         private void LoadSessions()
         {
             try
             {
                 DataTable dt = _db.GetSessionList();
 
-                // Tạo cột hiển thị: "Giờ bắt đầu - IP"
-                dt.Columns.Add("DisplaySession", typeof(string), "StartTime + '  (IP: ' + IP + ')'");
+                if (dt.Rows.Count > 0)
+                {
+                    // Tạo cột hiển thị đẹp: "Giờ - IP"
+                    dt.Columns.Add("DisplaySession", typeof(string), "StartTime + '  (IP: ' + IP + ')'");
 
-                cboSessions.DataSource = dt;
-                cboSessions.DisplayMember = "DisplaySession"; // Hiển thị giờ
-                cboSessions.ValueMember = "SessionID";       // Giá trị ngầm là SessionID
+                    cboSessions.DataSource = dt;
+                    cboSessions.DisplayMember = "DisplaySession"; // Hiển thị tên
+                    cboSessions.ValueMember = "SessionID";       // Giá trị ngầm (ID)
+                }
             }
-            catch (Exception ex) { MessageBox.Show("Lỗi tải session: " + ex.Message); }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi tải danh sách: " + ex.Message);
+            }
         }
 
-        // Khi chọn 1 phiên -> Tải danh sách ảnh của phiên đó
+        // 2. Sự kiện: Khi chọn 1 phiên ở ComboBox -> Tải danh sách ảnh vào ListBox
         private void CboSessions_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (cboSessions.SelectedValue == null) return;
+
+            // Lấy SessionID từ ComboBox (đã kéo thả)
             string selectedSessionID = cboSessions.SelectedValue.ToString();
 
+            // Lấy danh sách ảnh từ DB
             DataTable dt = _db.GetRecordsBySession(selectedSessionID);
 
-            lstRecords.DataSource = dt;
-            lstRecords.DisplayMember = "CreatedAt"; // Chỉ hiện giờ chụp
-            lstRecords.ValueMember = "Id";
+            // Đổ vào ListBox (đã kéo thả)
+            listBox1.DataSource = dt;
+            listBox1.DisplayMember = "CreatedAt";
+            listBox1.ValueMember = "Id";
 
-            lblInfo.Text = $"Đã tìm thấy {dt.Rows.Count} ảnh trong phiên này.";
-            picRecord.Image = null; // Xóa ảnh cũ
+            // Xóa ảnh cũ đang hiện
+            if (pictureBox1.Image != null) pictureBox1.Image.Dispose();
+            pictureBox1.Image = null;
         }
 
-        // Khi chọn 1 dòng giờ -> Hiện ảnh
-        private void LstRecords_SelectedIndexChanged(object sender, EventArgs e)
+        // 3. Sự kiện: Khi chọn 1 dòng giờ ở ListBox -> Hiện ảnh lên PictureBox
+        private void ListBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (lstRecords.SelectedValue == null) return;
-            if (int.TryParse(lstRecords.SelectedValue.ToString(), out int id))
+            if (listBox1.SelectedValue == null) return;
+
+            if (int.TryParse(listBox1.SelectedValue.ToString(), out int imageId))
             {
-                byte[] imgBytes = _db.GetRecordImage(id);
-                if (imgBytes != null)
+                byte[] imgBytes = _db.GetRecordImage(imageId);
+
+                if (imgBytes != null && imgBytes.Length > 0)
                 {
-                    using (MemoryStream ms = new MemoryStream(imgBytes))
+                    try
                     {
-                        if (picRecord.Image != null) picRecord.Image.Dispose();
-                        picRecord.Image = Image.FromStream(ms);
+                        using (MemoryStream ms = new MemoryStream(imgBytes))
+                        {
+                            // Hiển thị lên PictureBox (đã kéo thả)
+                            pictureBox1.Image = new Bitmap(ms);
+                        }
                     }
+                    catch { }
                 }
             }
         }
 
-        private void frmHistory_Load(object sender, EventArgs e)
-        {
-
-        }
-
-        private void label1_Click(object sender, EventArgs e)
-        {
-
-        }
+        // Các hàm thừa do lỡ click đúp trong Designer (để trống để tránh lỗi)
+        private void frmHistory_Load(object sender, EventArgs e) { }
+        private void label1_Click(object sender, EventArgs e) { }
     }
 }
