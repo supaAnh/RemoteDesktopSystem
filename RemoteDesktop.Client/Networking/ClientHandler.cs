@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using RemoteDesktop.Common.Helpers;
 using RemoteDesktop.Common.Models;
 
@@ -7,7 +9,9 @@ namespace RemoteDesktop.Client.Networking
 {
     public class ClientHandler
     {
-        private TcpClient _client;
+        // [THAY ĐỔI 1] Dùng Socket thay vì TcpClient
+        private Socket _clientSocket;
+        private TcpClient _tcpClientWrapper; // Wrapper để dùng NetworkStream
         private NetworkStream _stream;
         private bool _isConnected;
 
@@ -17,9 +21,37 @@ namespace RemoteDesktop.Client.Networking
         {
             try
             {
-                _client = new TcpClient();
-                _client.Connect(ip, port);
-                _stream = _client.GetStream();
+                // [THAY ĐỔI 2] Tạo Socket và đặt chế độ Non-blocking
+                _clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                _clientSocket.Blocking = false;
+
+                try
+                {
+                    _clientSocket.Connect(ip, port);
+                }
+                catch (SocketException ex)
+                {
+                    // [QUAN TRỌNG] Xử lý lỗi WouldBlock khi Connect (Giống ảnh Client)
+                    if (ex.SocketErrorCode != SocketError.WouldBlock && ex.SocketErrorCode != SocketError.IsConnected)
+                    {
+                        throw; // Nếu lỗi thật thì ném ra
+                    }
+
+                    // Vì Non-blocking nên Connect sẽ không xong ngay, ta cần chờ một chút
+                    // Dùng Poll để kiểm tra khi nào Socket sẵn sàng ghi (Write) -> Tức là đã kết nối xong
+                    int timeoutMicroseconds = 5000000; // 5 giây
+                    if (!_clientSocket.Poll(timeoutMicroseconds, SelectMode.SelectWrite))
+                    {
+                        throw new Exception("Quá thời gian kết nối Server (Timeout).");
+
+                    }
+                }
+
+                // Sau khi Connect thành công theo kiểu Non-blocking
+                // Ta bọc nó vào TcpClient để lấy Stream xử lý gửi nhận ảnh/file
+                _clientSocket.Blocking = true; // Chuyển lại Blocking để truyền dữ liệu ổn định
+                _tcpClientWrapper = new TcpClient { Client = _clientSocket };
+                _stream = _tcpClientWrapper.GetStream();
                 _isConnected = true;
             }
             catch (Exception ex)
@@ -35,7 +67,6 @@ namespace RemoteDesktop.Client.Networking
             {
                 try
                 {
-                    // Sử dụng NetworkHelper để nhận và giải mã gói tin an toàn
                     return NetworkHelper.ReceiveSecurePacket(_stream);
                 }
                 catch
@@ -46,15 +77,12 @@ namespace RemoteDesktop.Client.Networking
             return null;
         }
 
-
-        // Gửi gói tin đi sử dụng giao thức an toàn (AES + Length Header)
         public void SendPacket(Packet packet)
         {
             if (_isConnected && _stream != null)
             {
                 try
                 {
-                    //Sử dụng NetworkHelper để đồng bộ giao thức với Server
                     NetworkHelper.SendSecurePacket(_stream, packet);
                 }
                 catch
@@ -66,14 +94,15 @@ namespace RemoteDesktop.Client.Networking
 
         public NetworkStream GetStream()
         {
-            return _stream; // Trả về stream để frmRemote sử dụng trong ReceiveLoop
+            return _stream;
         }
 
         public void Disconnect()
         {
             _isConnected = false;
             _stream?.Close();
-            _client?.Close();
+            _tcpClientWrapper?.Close();
+            if (_clientSocket != null && _clientSocket.Connected) _clientSocket.Close();
         }
     }
 }

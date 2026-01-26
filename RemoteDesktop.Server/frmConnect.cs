@@ -1,9 +1,8 @@
 ﻿using RemoteDesktop.Server.Database;
 using RemoteDesktop.Server.Networking;
-using RemoteDesktop.Server.Utils;
 using System;
+using System.Drawing; // Thư viện để chỉnh màu, vị trí nút
 using System.Windows.Forms;
-using System.Drawing; // Thêm thư viện này để dùng Color
 
 namespace RemoteDesktop.Server
 {
@@ -15,23 +14,43 @@ namespace RemoteDesktop.Server
         public frmConnect()
         {
             InitializeComponent();
-            InitializeLogView(); // <--- Gọi hàm tạo cột
+
+            // --- [PHẦN MỚI] THÊM NÚT XEM LỊCH SỬ BẰNG CODE ---
+            // Tui viết code tạo nút ở đây để bạn khỏi cần kéo thả
+            Button btnHistory = new Button();
+            btnHistory.Text = "Xem Lại Record";
+            btnHistory.Size = new Size(120, 30);
+            btnHistory.Location = new Point(20, 20); // Nằm ở góc trên bên trái
+            btnHistory.BackColor = Color.LightBlue;  // Màu xanh cho dễ nhìn
+
+            // Sự kiện: Bấm nút thì mở Form History
+            btnHistory.Click += (s, e) => {
+                // Tạo và hiện form lịch sử
+                frmHistory historyForm = new frmHistory();
+                historyForm.ShowDialog();
+            };
+
+            // Thêm nút vào Form
+            this.Controls.Add(btnHistory);
+            // -------------------------------------------------
+
+            // Gọi hàm tạo cột cho bảng Log
+            InitializeLogView();
         }
 
-        // --- HÀM MỚI: TẠO CỘT CHO BẢNG LOG ---
+        // Hàm tạo 3 cột cho bảng Log (Thời gian - Nguồn - Hành động)
         private void InitializeLogView()
         {
             lsvLog.View = View.Details;
             lsvLog.GridLines = true;
             lsvLog.FullRowSelect = true;
 
-            // Xóa cột cũ (nếu có) và thêm 3 cột mới giống hệt frmRemote
+            // Xóa cột cũ và thêm cột mới
             lsvLog.Columns.Clear();
             lsvLog.Columns.Add("Thời gian", 100);
-            lsvLog.Columns.Add("Nguồn", 150);     // Cột mới
-            lsvLog.Columns.Add("Hành động", 500); // Cột nội dung
+            lsvLog.Columns.Add("Nguồn", 150);
+            lsvLog.Columns.Add("Hành động", 500);
         }
-        // -------------------------------------
 
         private void btnStart_Click(object sender, EventArgs e)
         {
@@ -41,21 +60,24 @@ namespace RemoteDesktop.Server
 
                 if (_server == null)
                 {
-                    // Truyền lsvLog vào ServerHandler để nó tự ghi log
+                    // Truyền lsvLog vào để ServerHandler tự ghi log lên đó
                     _server = new ServerHandler(lsvLog);
                 }
 
+                // Xử lý khi có Client kết nối thành công
                 _server.OnClientConnected += (client) => {
                     this.Invoke(new Action(() => {
+                        // Nếu chưa có cửa sổ Remote nào thì mở mới
                         if (_currentRemoteForm == null || _currentRemoteForm.IsDisposed)
                         {
-                            this.Hide();
+                            this.Hide(); // Ẩn form kết nối đi
                             _currentRemoteForm = new frmRemote(_server, client);
                             _currentRemoteForm.Show();
                         }
                     }));
                 };
 
+                // Kết nối Database
                 DatabaseManager dbManager = new DatabaseManager();
                 _server.LogToUI("Đang kết nối Database...");
 
@@ -70,7 +92,10 @@ namespace RemoteDesktop.Server
                     return;
                 }
 
+                // Bắt đầu chạy Server (Chế độ Non-blocking đã cài trong ServerHandler)
                 _server.StartListening(port);
+
+                // Khóa nút Start để không bấm lại lần 2
                 btnStart.Enabled = false;
             }
             catch (Exception ex)
@@ -79,9 +104,9 @@ namespace RemoteDesktop.Server
             }
         }
 
+        // Sự kiện này để trống cũng được (do Visual Studio tự sinh ra)
         private void lsvLog_SelectedIndexChanged(object sender, EventArgs e)
         {
-
         }
     }
 }
