@@ -14,7 +14,8 @@ namespace RemoteDesktop.Client.Networking
         private TcpClient _tcpClientWrapper; // Wrapper để dùng NetworkStream
         private NetworkStream _stream;
         private bool _isConnected;
-
+        private string _sessionKey;
+        public string SessionKey { get => _sessionKey; set => _sessionKey = value; }
         public bool IsConnected => _isConnected;
 
         public void Connect(string ip, int port)
@@ -83,6 +84,7 @@ namespace RemoteDesktop.Client.Networking
             {
                 try
                 {
+                    packet.SenderId = _sessionKey; // Gắn Key xác thực vào gói tin
                     NetworkHelper.SendSecurePacket(_stream, packet);
                 }
                 catch

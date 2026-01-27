@@ -150,6 +150,15 @@ namespace RemoteDesktop.Server.Networking
 
         private void ProcessPacket(Packet packet, TcpClient client, string ip)
         {
+            // Ngoại trừ gói Login và Register, các gói khác có thể kiểm tra SenderId
+            if (packet.Type != CommandType.Login && packet.Type != CommandType.Register)
+            {
+                if (string.IsNullOrEmpty(packet.SenderId))
+                {
+                    LogToUI($"[{ip}] Cảnh báo: Gói tin không có Key xác thực!");
+                    return;
+                }
+            }
             switch (packet.Type)
             {
                 case CommandType.Login: HandleLogin(packet, client); break;
@@ -189,19 +198,30 @@ namespace RemoteDesktop.Server.Networking
             var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
             string clientIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
             if (loginInfo == null) return;
-            bool isValid = _dbManager.ValidateUser(loginInfo.Username, loginInfo.Password);
 
-            Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes(isValid ? "SUCCESS" : "FAIL") };
-            NetworkHelper.SendSecurePacket(client.GetStream(), response);
+            bool isValid = _dbManager.ValidateUser(loginInfo.Username, loginInfo.Password);
 
             if (isValid)
             {
+                // gửi một GUID làm Session Key
+                string sessionKey = Guid.NewGuid().ToString();
+                Packet response = new Packet
+                {
+                    Type = CommandType.Login,
+                    Data = Encoding.UTF8.GetBytes(sessionKey) // Gửi Key về Client
+                };
+                NetworkHelper.SendSecurePacket(client.GetStream(), response);
+
                 _connectionGuard.AddClient(client);
-                int count = _connectionGuard.GetConnectedClients().Count;
-                LogToUI($"[{clientIP}] '{loginInfo.Username}' đăng nhập thành công. (Online: {count})");
+                LogToUI($"[{clientIP}] '{loginInfo.Username}' đăng nhập thành công. Key: {sessionKey}");
                 OnClientConnected?.Invoke(client);
             }
-            else LogToUI($"[{clientIP}] Đăng nhập thất bại: '{loginInfo.Username}'");
+            else
+            {
+                Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes("FAIL") };
+                NetworkHelper.SendSecurePacket(client.GetStream(), response);
+                LogToUI($"[{clientIP}] Đăng nhập thất bại: '{loginInfo.Username}'");
+            }
         }
 
         private void HandleRegister(Packet packet, TcpClient client)

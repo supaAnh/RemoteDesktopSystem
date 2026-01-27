@@ -79,15 +79,13 @@ namespace RemoteDesktop.Client
                 {
                     string result = Encoding.UTF8.GetString(response.Data);
 
-                    if (result == "SUCCESS")
+                    if (result != "FAIL") // Nếu không phải FAIL thì result chính là Session Key
                     {
+                        _client.SessionKey = result; // Lưu Key vào ClientHandler
                         lblStatus.Text = "Đăng nhập thành công!";
 
-                        // Chuyển sang màn hình điều khiển chính
                         frmRemote remoteForm = new frmRemote(_client);
                         remoteForm.Show();
-
-                        // Đóng form đăng nhập hiện tại
                         this.Hide();
                     }
                     else
