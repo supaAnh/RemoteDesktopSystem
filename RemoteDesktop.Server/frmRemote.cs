@@ -3,7 +3,7 @@ using RemoteDesktop.Common.Helpers;
 using RemoteDesktop.Common.Models;
 using RemoteDesktop.Server.Networking;
 using System;
-using System.Diagnostics; // Dùng cho Process.Start
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net;
@@ -21,7 +21,7 @@ namespace RemoteDesktop.Server
         private TcpClient _targetClient;
         private bool _isStreaming = false;
         private DatabaseManager _dbManager = new DatabaseManager();
-        private string _currentSessionID; // Mã phiên kết nối
+        private string _currentSessionID;
 
         public frmRemote(ServerHandler server, TcpClient client)
         {
@@ -29,47 +29,51 @@ namespace RemoteDesktop.Server
             this._server = server;
             this._targetClient = client;
 
-            // Tạo mã phiên mới: Session_NămThángNgày_GiờPhútGiây
             _currentSessionID = "Session_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            // Đăng ký nhận tin nhắn Chat
-            this._server.OnChatReceived += (sender, message) =>
-            {
-                try
-                {
-                    string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
-                    AppendChatHistory($"[{senderIP}]: {message}");
-                    UpdateRemoteLog($"[{senderIP}] Chat: {message}");
-                }
-                catch { }
-            };
+            // Đăng ký sự kiện
+            this._server.OnChatReceived += Server_OnChatReceived;
+            this._server.OnFileReceived += Server_OnFileReceived;
+            this._server.OnLogAdded += Server_OnLogAdded;
+        }
 
-            // Đăng ký nhận File
-            this._server.OnFileReceived += (sender, data) =>
+        // Tách hàm sự kiện ra để code gọn hơn
+        private void Server_OnChatReceived(TcpClient sender, string message)
+        {
+            try
             {
-                try
-                {
-                    string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
-                    var fileDto = DataHelper.Deserialize<FilePacketDTO>(data);
-                    if (fileDto != null)
-                    {
-                        AppendChatHistory($"[{senderIP}] đã gửi file: {fileDto.FileName}");
-                        HandleIncomingFile(data);
-                        UpdateRemoteLog($"[{senderIP}] Gửi file: {fileDto.FileName}");
-                    }
-                }
-                catch { }
-            };
+                string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+                // 1. Hiện lên khung chat
+                AppendChatHistory($"[{senderIP}]: {message}");
+                // 2. Lưu vào Log và DB
+                UpdateRemoteLog($"[{senderIP}] Chat: {message}");
+            }
+            catch { }
+        }
 
-            // Đăng ký nhận Log hệ thống
-            this._server.OnLogAdded += (msg) => {
-                UpdateRemoteLog(msg);
-            };
+        private void Server_OnFileReceived(TcpClient sender, byte[] data)
+        {
+            try
+            {
+                string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
+                var fileDto = DataHelper.Deserialize<FilePacketDTO>(data);
+                if (fileDto != null)
+                {
+                    AppendChatHistory($"[{senderIP}] đã gửi file: {fileDto.FileName}");
+                    HandleIncomingFile(data);
+                    UpdateRemoteLog($"[{senderIP}] Gửi file: {fileDto.FileName}");
+                }
+            }
+            catch { }
+        }
+
+        private void Server_OnLogAdded(string msg)
+        {
+            UpdateRemoteLog(msg);
         }
 
         private void frmRemote_Load(object sender, EventArgs e)
         {
-            // Cấu hình bảng Log
             lsvLog.View = View.Details;
             lsvLog.GridLines = true;
             lsvLog.FullRowSelect = true;
@@ -90,21 +94,26 @@ namespace RemoteDesktop.Server
                 {
                     try
                     {
-                        // 1. Chụp ảnh
+                        // 1. Chụp ảnh (đã được nén nhẹ ở ScreenCapturer.cs)
                         byte[] screenData = RemoteDesktop.Server.Services.ScreenCapturer.CaptureDesktop();
 
-                        // 2. Gửi cho Client
-                        var packet = new Packet { Type = CommandType.ScreenUpdate, Data = screenData };
-                        _server.BroadcastPacket(packet);
-
-                        // 3. Lưu vào Database (Mỗi 50 khung hình ~ 5s lưu 1 lần)
-                        frameCount++;
-                        if (frameCount % 50 == 0)
+                        if (screenData.Length > 0)
                         {
-                            _dbManager.SaveScreenRecord(_currentSessionID, "SERVER", screenData);
+                            // 2. Gửi cho Client
+                            var packet = new Packet { Type = CommandType.ScreenUpdate, Data = screenData };
+                            _server.BroadcastPacket(packet);
+
+                            // 3. Lưu DB định kỳ (mỗi 50 khung hình)
+                            frameCount++;
+                            if (frameCount % 50 == 0)
+                            {
+                                _dbManager.SaveScreenRecord(_currentSessionID, "SERVER", screenData);
+                            }
                         }
 
-                        Thread.Sleep(100);
+                        // [QUAN TRỌNG] Nghỉ 50ms (khoảng 20FPS)
+                        // Khoảng nghỉ này CỰC KỲ QUAN TRỌNG để Server có thời gian xử lý gói tin Chat
+                        Thread.Sleep(50);
                     }
                     catch { }
                 }
@@ -115,23 +124,28 @@ namespace RemoteDesktop.Server
 
         private void UpdateRemoteLog(string message)
         {
-            // Lưu log vào Database (Chạy ngầm)
-            new Thread(() => {
-                string ip = "SYSTEM";
-                string content = message;
-                if (message.StartsWith("[") && message.Contains("]"))
+            // Lưu log vào Database (DB Manager đã có Task.Run bên trong nên gọi trực tiếp ok)
+            string ip = "SYSTEM";
+            string content = message;
+            if (message.StartsWith("[") && message.Contains("]"))
+            {
+                try
                 {
                     int idx = message.IndexOf("]");
-                    ip = message.Substring(1, idx - 1);
-                    content = message.Substring(idx + 1).Trim();
+                    if (idx > 1)
+                    {
+                        ip = message.Substring(1, idx - 1);
+                        content = message.Substring(idx + 1).Trim();
+                    }
                 }
-                _dbManager.SaveLog(_currentSessionID, ip, content);
-            }).Start();
+                catch { }
+            }
+            _dbManager.SaveLog(_currentSessionID, ip, content);
 
-            // Hiện lên giao diện
+            // Hiện lên UI
             if (lsvLog.InvokeRequired)
             {
-                lsvLog.Invoke(new Action(() => UpdateRemoteLog(message)));
+                lsvLog.BeginInvoke(new Action(() => UpdateRemoteLog(message)));
             }
             else
             {
@@ -139,15 +153,12 @@ namespace RemoteDesktop.Server
                 {
                     ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
                     lsvLog.Items.Add(item);
-                    item.EnsureVisible();
+                    if (lsvLog.Items.Count > 0) item.EnsureVisible();
                 }
                 catch { }
             }
         }
 
-        // --- CÁC HÀM NÚT BẤM (ĐỂ SỬA LỖI CS0103) ---
-
-        // Nút Gửi Chat
         private void btnSendChat_Click(object sender, EventArgs e)
         {
             string msg = txtChatInput.Text.Trim();
@@ -155,9 +166,11 @@ namespace RemoteDesktop.Server
 
             try
             {
+                // Gửi Broadcast cho mọi người
                 var packet = new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes($"[SERVER]: {msg}") };
                 _server.BroadcastPacket(packet);
 
+                // Hiển thị và lưu log tại Server
                 AppendChatHistory($"[SERVER]: {msg}");
                 UpdateRemoteLog("[SERVER] Chat: " + msg);
                 txtChatInput.Clear();
@@ -165,7 +178,6 @@ namespace RemoteDesktop.Server
             catch (Exception ex) { MessageBox.Show("Lỗi gửi: " + ex.Message); }
         }
 
-        // Nút Gửi File
         private void btnSendFile_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog ofd = new OpenFileDialog())
@@ -174,7 +186,8 @@ namespace RemoteDesktop.Server
                 {
                     try
                     {
-                        var fileDto = new FilePacketDTO { FileName = Path.GetFileName(ofd.FileName), Buffer = File.ReadAllBytes(ofd.FileName) };
+                        byte[] fileData = File.ReadAllBytes(ofd.FileName);
+                        var fileDto = new FilePacketDTO { FileName = Path.GetFileName(ofd.FileName), Buffer = fileData };
                         var packet = new Packet { Type = CommandType.FileTransfer, Data = DataHelper.Serialize(fileDto) };
 
                         _server.BroadcastPacket(packet);
@@ -186,10 +199,15 @@ namespace RemoteDesktop.Server
             }
         }
 
-        // Nút Ngắt kết nối
         private void btnStopRemote_Click(object sender, EventArgs e)
         {
             _isStreaming = false;
+
+            // Hủy đăng ký sự kiện để tránh lỗi khi mở lại
+            this._server.OnChatReceived -= Server_OnChatReceived;
+            this._server.OnFileReceived -= Server_OnFileReceived;
+            this._server.OnLogAdded -= Server_OnLogAdded;
+
             if (_server != null) _server.Stop();
 
             frmConnect connectForm = new frmConnect();
@@ -200,7 +218,7 @@ namespace RemoteDesktop.Server
         private void AppendChatHistory(string text)
         {
             if (txtChatHistory.InvokeRequired)
-                txtChatHistory.Invoke(new Action(() => AppendChatHistory(text)));
+                txtChatHistory.BeginInvoke(new Action(() => AppendChatHistory(text)));
             else
             {
                 txtChatHistory.AppendText(text + Environment.NewLine);
@@ -210,7 +228,6 @@ namespace RemoteDesktop.Server
 
         private void HandleIncomingFile(byte[] rawData)
         {
-            // Logic nhận file giữ nguyên
             try
             {
                 var fileDto = DataHelper.Deserialize<FilePacketDTO>(rawData);

@@ -16,12 +16,10 @@ namespace RemoteDesktop.Server.Networking
 {
     public class ServerHandler
     {
-        // [THAY ĐỔI 1] Dùng Socket thay vì TcpListener
         private Socket _serverSocket;
         private bool _isRunning;
         private ListView _logView;
 
-        // Các sự kiện
         public event Action<string>? OnLogAdded;
         public delegate void ChatReceivedHandler(TcpClient sender, string message);
         public event ChatReceivedHandler? OnChatReceived;
@@ -42,14 +40,11 @@ namespace RemoteDesktop.Server.Networking
         {
             try
             {
-                // [THAY ĐỔI 2] Khởi tạo Socket theo mô hình trong ảnh
                 IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, port);
                 _serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 _serverSocket.Bind(endPoint);
                 _serverSocket.Listen(10);
-
-                // [QUAN TRỌNG] Chuyển sang chế độ Non-blocking như yêu cầu
-                _serverSocket.Blocking = false;
+                _serverSocket.Blocking = false; // Non-blocking mode
 
                 _isRunning = true;
 
@@ -57,7 +52,7 @@ namespace RemoteDesktop.Server.Networking
                 t.IsBackground = true;
                 t.Start();
 
-                LogToUI($"Server đang chạy chế độ Non-blocking trên cổng {port}...");
+                LogToUI($"Server đang chạy trên cổng {port} (Non-blocking)...");
             }
             catch (Exception ex)
             {
@@ -65,22 +60,19 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        // [THAY ĐỔI 3] Vòng lặp Accept Client theo chuẩn Non-blocking (Giống ảnh)
         private void AcceptClient()
         {
             while (_isRunning)
             {
                 try
                 {
-                    // Thử chấp nhận kết nối
                     Socket clientSocket = _serverSocket.Accept();
 
-                    // Nếu thành công (không bị lỗi), xử lý client mới
+                    // Client kết nối thành công
                     string ip = ((IPEndPoint)clientSocket.RemoteEndPoint).Address.ToString();
-                    LogToUI($"Client {ip} đã kết nối (Non-blocking Socket).");
+                    LogToUI($"Client {ip} đã kết nối.");
 
-                    // Chuyển Socket thành TcpClient để tương thích với code xử lý cũ (NetworkStream)
-                    // Lưu ý: Ta cần chuyển lại Blocking = true cho Socket con để đảm bảo truyền File/Ảnh ổn định
+                    // Chuyển lại Blocking = true cho socket con để truyền nhận dữ liệu ổn định
                     clientSocket.Blocking = true;
                     TcpClient tcpClient = new TcpClient { Client = clientSocket };
 
@@ -90,30 +82,25 @@ namespace RemoteDesktop.Server.Networking
                 }
                 catch (SocketException ex)
                 {
-                    // [QUAN TRỌNG] Bắt lỗi WouldBlock - Đây là dấu hiệu của Non-blocking khi chưa có ai kết nối
                     if (ex.SocketErrorCode == SocketError.WouldBlock)
                     {
-                        // Chưa có kết nối nào, tiếp tục vòng lặp (giống mô phỏng công việc khác)
-                        Thread.Sleep(100);
+                        Thread.Sleep(100); // Chờ kết nối mới
                     }
                     else
                     {
                         LogToUI("Lỗi Accept: " + ex.Message);
                     }
                 }
-                catch (Exception ex)
-                {
-                    if (_isRunning) LogToUI("Lỗi khác: " + ex.Message);
-                }
+                catch { }
             }
         }
 
-        // --- Các phần xử lý bên dưới giữ nguyên logic ---
         private void HandleConnectedClient(TcpClient client)
         {
-            string clientIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
+            string clientIP = "UNKNOWN";
             try
             {
+                clientIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
                 using (NetworkStream stream = client.GetStream())
                 {
                     while (_isRunning && client.Connected)
@@ -146,7 +133,6 @@ namespace RemoteDesktop.Server.Networking
                 case CommandType.FileTransfer: HandleFileTransfer(packet, client, ip); break;
                 case CommandType.Disconnect: client.Close(); break;
                 case CommandType.InputControl: HandleInputControl(packet, client); break;
-                default: LogToUI($"Gói tin lạ: {packet.Type}"); break;
             }
         }
 
@@ -155,11 +141,9 @@ namespace RemoteDesktop.Server.Networking
             if (!_connectionGuard.IsController(sender)) return;
             var input = DataHelper.Deserialize<InputDTO>(packet.Data);
             if (input == null) return;
-            string clientIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
 
             if (input.Type == 0) // Chuột
             {
-                if (input.Action > 0) LogToUI($"[{clientIP}] Click chuột (Action: {input.Action}).");
                 int sw = Screen.PrimaryScreen.Bounds.Width;
                 int sh = Screen.PrimaryScreen.Bounds.Height;
                 MouseHelper.SetCursorPos((input.X * sw) / 1000, (input.Y * sh) / 1000);
@@ -167,7 +151,6 @@ namespace RemoteDesktop.Server.Networking
             }
             else if (input.Type == 1) // Phím
             {
-                LogToUI($"[{clientIP}] Nhấn phím (Mã: {input.KeyCode}).");
                 KeyboardHelper.SimulateKeyPress(input.KeyCode);
             }
         }
@@ -175,8 +158,6 @@ namespace RemoteDesktop.Server.Networking
         private void HandleLogin(Packet packet, TcpClient client)
         {
             var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
-            string clientIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
-            if (loginInfo == null) return;
             bool isValid = _dbManager.ValidateUser(loginInfo.Username, loginInfo.Password);
 
             Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes(isValid ? "SUCCESS" : "FAIL") };
@@ -185,11 +166,9 @@ namespace RemoteDesktop.Server.Networking
             if (isValid)
             {
                 _connectionGuard.AddClient(client);
-                int count = _connectionGuard.GetConnectedClients().Count;
-                LogToUI($"[{clientIP}] '{loginInfo.Username}' đăng nhập thành công. (Online: {count})");
                 OnClientConnected?.Invoke(client);
+                LogToUI($"Client {loginInfo.Username} đã đăng nhập.");
             }
-            else LogToUI($"[{clientIP}] Đăng nhập thất bại: '{loginInfo.Username}'");
         }
 
         private void HandleRegister(Packet packet, TcpClient client)
@@ -203,31 +182,41 @@ namespace RemoteDesktop.Server.Networking
         private void HandleChatRequest(Packet packet, TcpClient client, string ip)
         {
             string rawMsg = Encoding.UTF8.GetString(packet.Data);
+
+            // 1. Kích hoạt sự kiện để hiện lên UI Server
             OnChatReceived?.Invoke(client, rawMsg);
+
+            // 2. Gửi cho tất cả các Client khác
             BroadcastPacket(new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes($"[{ip}]: {rawMsg}") });
         }
 
         private void HandleFileTransfer(Packet packet, TcpClient client, string ip)
         {
-            var fileDto = DataHelper.Deserialize<FilePacketDTO>(packet.Data);
-            if (fileDto != null)
-            {
-                OnFileReceived?.Invoke(client, packet.Data);
-                string storagePath = Path.Combine(Application.StartupPath, "ReceivedFiles", fileDto.FileName);
-                Directory.CreateDirectory(Path.GetDirectoryName(storagePath));
-                File.WriteAllBytes(storagePath, fileDto.Buffer);
-                BroadcastPacket(new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes($"[{ip}] gửi file: {fileDto.FileName}") });
-                BroadcastPacket(packet);
-            }
+            OnFileReceived?.Invoke(client, packet.Data);
+            BroadcastPacket(packet); // Chuyển tiếp file cho mọi người
         }
-
-        public void CheckDatabaseConnection() { try { _dbManager.InitializeDatabase(); LogToUI("Kết nối Database thành công."); } catch (Exception ex) { LogToUI("Lỗi DB: " + ex.Message); } }
 
         public void BroadcastPacket(Packet packet)
         {
-            foreach (var client in _connectionGuard.GetConnectedClients())
+            // Lấy danh sách client đang online
+            var clients = _connectionGuard.GetConnectedClients();
+
+            // Duyệt ngược để an toàn khi xóa
+            for (int i = clients.Count - 1; i >= 0; i--)
             {
-                try { if (client != null && client.Connected) NetworkHelper.SendSecurePacket(client.GetStream(), packet); } catch { }
+                var client = clients[i];
+                try
+                {
+                    if (client != null && client.Connected)
+                    {
+                        NetworkHelper.SendSecurePacket(client.GetStream(), packet);
+                    }
+                }
+                catch
+                {
+                    // Nếu gửi lỗi thì xóa client đó ra khỏi danh sách
+                    _connectionGuard.RemoveClient(client);
+                }
             }
         }
 
@@ -239,21 +228,8 @@ namespace RemoteDesktop.Server.Networking
             {
                 try
                 {
-                    string source = "SYSTEM";
-                    string content = message;
-                    Color textColor = Color.Red;
-                    if (message.Trim().StartsWith("[") && message.Contains("]"))
-                    {
-                        int closeBracketIndex = message.IndexOf("]");
-                        if (closeBracketIndex > 1)
-                        {
-                            source = message.Substring(1, closeBracketIndex - 1);
-                            content = message.Substring(closeBracketIndex + 1).Trim();
-                            textColor = Color.Blue;
-                        }
-                    }
-                    ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), source, content });
-                    item.ForeColor = textColor;
+                    ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), "SYSTEM", message });
+                    item.ForeColor = Color.Blue;
                     _logView.Items.Add(item);
                     if (_logView.Items.Count > 0) _logView.Items[_logView.Items.Count - 1].EnsureVisible();
                 }
@@ -265,7 +241,7 @@ namespace RemoteDesktop.Server.Networking
         {
             BroadcastPacket(new Packet { Type = CommandType.Disconnect, Data = Encoding.UTF8.GetBytes("Server Stop") });
             _isRunning = false;
-            if (_serverSocket != null) { try { _serverSocket.Close(); } catch { } }
+            try { _serverSocket.Close(); } catch { }
             _connectionGuard.ClearAll();
         }
     }
