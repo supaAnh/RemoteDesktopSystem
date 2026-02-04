@@ -28,6 +28,7 @@ namespace RemoteDesktop.Server.Networking
         public delegate void FileReceivedHandler(TcpClient sender, byte[] data);
         public event FileReceivedHandler? OnFileReceived;
 
+        // Giữ lại DatabaseManager để dùng cho Register (nếu cần), nhưng Login sẽ không dùng tới nó nữa
         private Database.DatabaseManager _dbManager = new Database.DatabaseManager();
         private ConnectionGuard _connectionGuard = new ConnectionGuard();
 
@@ -52,7 +53,7 @@ namespace RemoteDesktop.Server.Networking
                 t.IsBackground = true;
                 t.Start();
 
-                LogToUI($"Server đang chạy trên cổng {port} (Đã tối ưu)...");
+                LogToUI($"Server đang chạy trên cổng {port} (Admin Mode - Bypass DB)...");
             }
             catch (Exception ex)
             {
@@ -67,8 +68,11 @@ namespace RemoteDesktop.Server.Networking
                 try
                 {
                     Socket clientSocket = _serverSocket.Accept();
-                    string ip = ((IPEndPoint)clientSocket.RemoteEndPoint).Address.ToString();
-                    LogToUI($"Client {ip} đã kết nối.");
+                    // Lấy IP để log
+                    string ip = "UNKNOWN";
+                    try { ip = ((IPEndPoint)clientSocket.RemoteEndPoint).Address.ToString(); } catch { }
+
+                    LogToUI($"Client {ip} đã kết nối Socket.");
 
                     clientSocket.Blocking = true;
                     TcpClient tcpClient = new TcpClient { Client = clientSocket };
@@ -80,7 +84,6 @@ namespace RemoteDesktop.Server.Networking
                 catch (SocketException ex)
                 {
                     if (ex.SocketErrorCode == SocketError.WouldBlock) Thread.Sleep(100);
-                    else LogToUI("Lỗi Accept: " + ex.Message);
                 }
                 catch { }
             }
@@ -91,26 +94,28 @@ namespace RemoteDesktop.Server.Networking
             string clientIP = "UNKNOWN";
             try
             {
-                clientIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
+                if (client.Client != null && client.Client.RemoteEndPoint != null)
+                    clientIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
+
                 using (NetworkStream stream = client.GetStream())
                 {
                     while (_isRunning && client.Connected)
                     {
                         var packet = NetworkHelper.ReceiveSecurePacket(stream);
                         if (packet != null) ProcessPacket(packet, client, clientIP);
-                        else break;
+                        else break; // Client ngắt kết nối
                     }
                 }
             }
             catch (Exception ex)
             {
-                LogToUI($"[{clientIP}] Ngắt kết nối: {ex.Message}");
+                LogToUI($"[{clientIP}] Lỗi kết nối: {ex.Message}");
             }
             finally
             {
                 _connectionGuard.RemoveClient(client);
-                client.Close();
-                LogToUI($"[{clientIP}] Client đã thoát.");
+                try { client.Close(); } catch { }
+                LogToUI($"[{clientIP}] Đã ngắt kết nối.");
             }
         }
 
@@ -127,56 +132,97 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        private void HandleInputControl(Packet packet, TcpClient sender)
-        {
-            if (!_connectionGuard.IsController(sender)) return;
-            var input = DataHelper.Deserialize<InputDTO>(packet.Data);
-            if (input == null) return;
-
-            // Xử lý mô phỏng chuột/phím trên luồng riêng để không treo luồng nhận gói tin
-            ThreadPool.QueueUserWorkItem(_ => {
-                if (input.Type == 0)
-                {
-                    int sw = Screen.PrimaryScreen.Bounds.Width;
-                    int sh = Screen.PrimaryScreen.Bounds.Height;
-                    MouseHelper.SetCursorPos((input.X * sw) / 1000, (input.Y * sh) / 1000);
-                    if (input.Action > 0) MouseHelper.SimulateMouseEvent(input.Action);
-                }
-                else if (input.Type == 1)
-                {
-                    KeyboardHelper.SimulateKeyPress(input.KeyCode);
-                }
-            });
-        }
-
+        // --- ĐÂY LÀ HÀM QUAN TRỌNG NHẤT BẠN CẦN ---
         private void HandleLogin(Packet packet, TcpClient client)
         {
             var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
-            bool isValid = _dbManager.ValidateUser(loginInfo.Username, loginInfo.Password);
+            if (loginInfo == null) return;
 
-            Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes(isValid ? "SUCCESS" : "FAIL") };
-            NetworkHelper.SendSecurePacket(client.GetStream(), response);
+            string username = loginInfo.Username;
+            string password = loginInfo.Password;
 
-            if (isValid)
+            // 1. Logic kiểm tra cứng: Mật khẩu 123456 và Tên bắt đầu bằng "admin"
+            // StringComparison.OrdinalIgnoreCase giúp admin1 và Admin1 đều được chấp nhận
+            bool isValidFormat = (password == "123456" &&
+                                  !string.IsNullOrEmpty(username) &&
+                                  username.StartsWith("admin", StringComparison.OrdinalIgnoreCase));
+
+            // 2. Kiểm tra xem tên này có đang Online không
+            bool isAlreadyOnline = _connectionGuard.IsUsernameOnline(username);
+
+            // LOGIC: Đúng định dạng + Chưa online = CHO VÀO (Không cần hỏi Database)
+            if (isValidFormat && !isAlreadyOnline)
             {
-                _connectionGuard.AddClient(client);
+                _connectionGuard.AddClient(client, username);
                 OnClientConnected?.Invoke(client);
-                LogToUI($"Client {loginInfo.Username} đã đăng nhập.");
+
+                Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes("SUCCESS") };
+                NetworkHelper.SendSecurePacket(client.GetStream(), response);
+                LogToUI($"Client [{username}] đăng nhập thành công.");
+            }
+            else
+            {
+                // Tìm nguyên nhân để log ra màn hình Server cho dễ debug
+                string reason = "Lỗi không xác định";
+                if (!isValidFormat) reason = "Sai MK (123456) hoặc sai tên (phải là admin...)";
+                else if (isAlreadyOnline) reason = "Tài khoản đang Online";
+
+                Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes("FAIL") };
+                NetworkHelper.SendSecurePacket(client.GetStream(), response);
+                LogToUI($"Đăng nhập thất bại ({username}): {reason}");
             }
         }
 
         private void HandleRegister(Packet packet, TcpClient client)
         {
+            // Vẫn giữ logic đăng ký cũ để không bị lỗi code, nhưng thực tế ta không cần dùng tới nữa
+            // vì ta đã bypass login ở trên rồi.
             LoginDTO regInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
-            bool isRegistered = _dbManager.RegisterUser(regInfo.Username, regInfo.Password);
-            string responseMsg = isRegistered ? "REGISTER_PENDING" : "REGISTER_FAILED";
-            NetworkHelper.SendSecurePacket(client.GetStream(), new Packet { Type = CommandType.Register, Data = Encoding.UTF8.GetBytes(responseMsg) });
+            if (regInfo != null && regInfo.Username.StartsWith("admin", StringComparison.OrdinalIgnoreCase))
+            {
+                bool isRegistered = _dbManager.RegisterUser(regInfo.Username, regInfo.Password);
+                string responseMsg = isRegistered ? "REGISTER_PENDING" : "REGISTER_FAILED";
+                NetworkHelper.SendSecurePacket(client.GetStream(), new Packet { Type = CommandType.Register, Data = Encoding.UTF8.GetBytes(responseMsg) });
+            }
+            else
+            {
+                NetworkHelper.SendSecurePacket(client.GetStream(), new Packet { Type = CommandType.Register, Data = Encoding.UTF8.GetBytes("REGISTER_FAILED") });
+            }
+        }
+
+        private void HandleInputControl(Packet packet, TcpClient sender)
+        {
+            // Chỉ cho phép điều khiển nếu đã đăng nhập (nằm trong Guard)
+            if (!_connectionGuard.IsController(sender)) return;
+
+            var input = DataHelper.Deserialize<InputDTO>(packet.Data);
+            if (input == null) return;
+
+            // Xử lý chuột/phím trên luồng riêng để mượt mà
+            ThreadPool.QueueUserWorkItem(_ => {
+                try
+                {
+                    if (input.Type == 0) // Mouse
+                    {
+                        int sw = Screen.PrimaryScreen.Bounds.Width;
+                        int sh = Screen.PrimaryScreen.Bounds.Height;
+                        MouseHelper.SetCursorPos((input.X * sw) / 1000, (input.Y * sh) / 1000);
+                        if (input.Action > 0) MouseHelper.SimulateMouseEvent(input.Action);
+                    }
+                    else if (input.Type == 1) // Keyboard
+                    {
+                        KeyboardHelper.SimulateKeyPress(input.KeyCode);
+                    }
+                }
+                catch { }
+            });
         }
 
         private void HandleChatRequest(Packet packet, TcpClient client, string ip)
         {
             string rawMsg = Encoding.UTF8.GetString(packet.Data);
             OnChatReceived?.Invoke(client, rawMsg);
+            // Gửi lại tin nhắn cho tất cả mọi người
             BroadcastPacket(new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes($"[{ip}]: {rawMsg}") });
         }
 
@@ -189,10 +235,10 @@ namespace RemoteDesktop.Server.Networking
         public void BroadcastPacket(Packet packet)
         {
             var clients = _connectionGuard.GetConnectedClients();
+            // Duyệt ngược để an toàn khi xóa phần tử
             for (int i = clients.Count - 1; i >= 0; i--)
             {
                 var client = clients[i];
-                // Gửi bất đồng bộ để tránh một client chậm làm treo cả hệ thống
                 ThreadPool.QueueUserWorkItem(_ => {
                     try
                     {
@@ -214,16 +260,13 @@ namespace RemoteDesktop.Server.Networking
             OnLogAdded?.Invoke(message);
             if (_logView.InvokeRequired)
             {
-                // Sử dụng BeginInvoke để không làm treo luồng mạng khi UI bận
                 _logView.BeginInvoke(new Action(() => LogToUI(message)));
             }
             else
             {
                 try
                 {
-                    // Giới hạn 100 dòng log để tránh tốn RAM
                     if (_logView.Items.Count > 100) _logView.Items.RemoveAt(0);
-
                     ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), "SYSTEM", message });
                     item.ForeColor = Color.Blue;
                     _logView.Items.Add(item);
@@ -237,7 +280,7 @@ namespace RemoteDesktop.Server.Networking
         {
             _isRunning = false;
             BroadcastPacket(new Packet { Type = CommandType.Disconnect, Data = Encoding.UTF8.GetBytes("Server Stop") });
-            Thread.Sleep(500); // Đợi gói tin ngắt kết nối gửi đi
+            Thread.Sleep(500); // Đợi client nhận tin
             try { _serverSocket.Close(); } catch { }
             _connectionGuard.ClearAll();
         }

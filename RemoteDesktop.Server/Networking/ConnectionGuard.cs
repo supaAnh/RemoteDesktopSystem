@@ -7,45 +7,41 @@ namespace RemoteDesktop.Server.Networking
 {
     public class ConnectionGuard
     {
-        // Danh sách chứa tất cả mọi người (người đầu tiên là Admin)
-        private readonly List<TcpClient> _clients = new List<TcpClient>();
+        // Dictionary lưu trữ Client và Username tương ứng
+        private readonly Dictionary<TcpClient, string> _connectedClients = new Dictionary<TcpClient, string>();
         private readonly object _lock = new object();
 
-        /// <summary>
-        /// Thêm client mới vào danh sách (luôn chấp nhận)
-        /// </summary>
-        public void AddClient(TcpClient newClient)
+        // Thêm Client kèm Username vào danh sách quản lý
+        public void AddClient(TcpClient client, string username)
         {
             lock (_lock)
             {
-                _clients.Add(newClient);
-            }
-        }
-
-        /// <summary>
-        /// Xóa client khi họ thoát
-        /// </summary>
-        public void RemoveClient(TcpClient client)
-        {
-            lock (_lock)
-            {
-                if (_clients.Contains(client))
+                if (!_connectedClients.ContainsKey(client))
                 {
-                    _clients.Remove(client);
+                    _connectedClients.Add(client, username);
                 }
             }
         }
 
-        /// <summary>
-        /// [QUAN TRỌNG] Kiểm tra xem client này có quyền điều khiển không?
-        /// Logic: Chỉ người đứng đầu danh sách (Index 0) mới được quyền.
-        /// </summary>
-        public bool IsController(TcpClient client)
+        // Xóa Client khi ngắt kết nối
+        public void RemoveClient(TcpClient client)
         {
             lock (_lock)
             {
-                // Nếu danh sách có người VÀ client này là người đầu tiên
-                return _clients.Count > 0 && _clients[0] == client;
+                if (_connectedClients.ContainsKey(client))
+                {
+                    _connectedClients.Remove(client);
+                }
+            }
+        }
+
+        // Kiểm tra xem Username đã có ai sử dụng chưa (Không phân biệt hoa thường)
+        // Ví dụ: "Admin" và "admin" coi như là một
+        public bool IsUsernameOnline(string username)
+        {
+            lock (_lock)
+            {
+                return _connectedClients.Values.Any(u => u.Equals(username, StringComparison.OrdinalIgnoreCase));
             }
         }
 
@@ -53,7 +49,16 @@ namespace RemoteDesktop.Server.Networking
         {
             lock (_lock)
             {
-                return _clients.ToList();
+                return _connectedClients.Keys.ToList();
+            }
+        }
+
+        // Kiểm tra xem Client này có quyền điều khiển không (đã đăng nhập chưa)
+        public bool IsController(TcpClient client)
+        {
+            lock (_lock)
+            {
+                return _connectedClients.ContainsKey(client);
             }
         }
 
@@ -61,8 +66,11 @@ namespace RemoteDesktop.Server.Networking
         {
             lock (_lock)
             {
-                foreach (var c in _clients) c.Close();
-                _clients.Clear();
+                foreach (var client in _connectedClients.Keys)
+                {
+                    try { client.Close(); } catch { }
+                }
+                _connectedClients.Clear();
             }
         }
     }
