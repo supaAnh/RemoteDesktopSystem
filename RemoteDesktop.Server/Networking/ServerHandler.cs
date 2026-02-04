@@ -44,7 +44,7 @@ namespace RemoteDesktop.Server.Networking
                 _serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 _serverSocket.Bind(endPoint);
                 _serverSocket.Listen(10);
-                _serverSocket.Blocking = false; // Non-blocking mode
+                _serverSocket.Blocking = false;
 
                 _isRunning = true;
 
@@ -52,7 +52,7 @@ namespace RemoteDesktop.Server.Networking
                 t.IsBackground = true;
                 t.Start();
 
-                LogToUI($"Server đang chạy trên cổng {port} (Non-blocking)...");
+                LogToUI($"Server đang chạy trên cổng {port} (Đã tối ưu)...");
             }
             catch (Exception ex)
             {
@@ -67,12 +67,9 @@ namespace RemoteDesktop.Server.Networking
                 try
                 {
                     Socket clientSocket = _serverSocket.Accept();
-
-                    // Client kết nối thành công
                     string ip = ((IPEndPoint)clientSocket.RemoteEndPoint).Address.ToString();
                     LogToUI($"Client {ip} đã kết nối.");
 
-                    // Chuyển lại Blocking = true cho socket con để truyền nhận dữ liệu ổn định
                     clientSocket.Blocking = true;
                     TcpClient tcpClient = new TcpClient { Client = clientSocket };
 
@@ -82,14 +79,8 @@ namespace RemoteDesktop.Server.Networking
                 }
                 catch (SocketException ex)
                 {
-                    if (ex.SocketErrorCode == SocketError.WouldBlock)
-                    {
-                        Thread.Sleep(100); // Chờ kết nối mới
-                    }
-                    else
-                    {
-                        LogToUI("Lỗi Accept: " + ex.Message);
-                    }
+                    if (ex.SocketErrorCode == SocketError.WouldBlock) Thread.Sleep(100);
+                    else LogToUI("Lỗi Accept: " + ex.Message);
                 }
                 catch { }
             }
@@ -142,17 +133,20 @@ namespace RemoteDesktop.Server.Networking
             var input = DataHelper.Deserialize<InputDTO>(packet.Data);
             if (input == null) return;
 
-            if (input.Type == 0) // Chuột
-            {
-                int sw = Screen.PrimaryScreen.Bounds.Width;
-                int sh = Screen.PrimaryScreen.Bounds.Height;
-                MouseHelper.SetCursorPos((input.X * sw) / 1000, (input.Y * sh) / 1000);
-                if (input.Action > 0) MouseHelper.SimulateMouseEvent(input.Action);
-            }
-            else if (input.Type == 1) // Phím
-            {
-                KeyboardHelper.SimulateKeyPress(input.KeyCode);
-            }
+            // Xử lý mô phỏng chuột/phím trên luồng riêng để không treo luồng nhận gói tin
+            ThreadPool.QueueUserWorkItem(_ => {
+                if (input.Type == 0)
+                {
+                    int sw = Screen.PrimaryScreen.Bounds.Width;
+                    int sh = Screen.PrimaryScreen.Bounds.Height;
+                    MouseHelper.SetCursorPos((input.X * sw) / 1000, (input.Y * sh) / 1000);
+                    if (input.Action > 0) MouseHelper.SimulateMouseEvent(input.Action);
+                }
+                else if (input.Type == 1)
+                {
+                    KeyboardHelper.SimulateKeyPress(input.KeyCode);
+                }
+            });
         }
 
         private void HandleLogin(Packet packet, TcpClient client)
@@ -182,52 +176,54 @@ namespace RemoteDesktop.Server.Networking
         private void HandleChatRequest(Packet packet, TcpClient client, string ip)
         {
             string rawMsg = Encoding.UTF8.GetString(packet.Data);
-
-            // 1. Kích hoạt sự kiện để hiện lên UI Server
             OnChatReceived?.Invoke(client, rawMsg);
-
-            // 2. Gửi cho tất cả các Client khác
             BroadcastPacket(new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes($"[{ip}]: {rawMsg}") });
         }
 
         private void HandleFileTransfer(Packet packet, TcpClient client, string ip)
         {
             OnFileReceived?.Invoke(client, packet.Data);
-            BroadcastPacket(packet); // Chuyển tiếp file cho mọi người
+            BroadcastPacket(packet);
         }
 
         public void BroadcastPacket(Packet packet)
         {
-            // Lấy danh sách client đang online
             var clients = _connectionGuard.GetConnectedClients();
-
-            // Duyệt ngược để an toàn khi xóa
             for (int i = clients.Count - 1; i >= 0; i--)
             {
                 var client = clients[i];
-                try
-                {
-                    if (client != null && client.Connected)
+                // Gửi bất đồng bộ để tránh một client chậm làm treo cả hệ thống
+                ThreadPool.QueueUserWorkItem(_ => {
+                    try
                     {
-                        NetworkHelper.SendSecurePacket(client.GetStream(), packet);
+                        if (client != null && client.Connected)
+                        {
+                            NetworkHelper.SendSecurePacket(client.GetStream(), packet);
+                        }
                     }
-                }
-                catch
-                {
-                    // Nếu gửi lỗi thì xóa client đó ra khỏi danh sách
-                    _connectionGuard.RemoveClient(client);
-                }
+                    catch
+                    {
+                        _connectionGuard.RemoveClient(client);
+                    }
+                });
             }
         }
 
         public void LogToUI(string message)
         {
             OnLogAdded?.Invoke(message);
-            if (_logView.InvokeRequired) _logView.Invoke(new Action(() => LogToUI(message)));
+            if (_logView.InvokeRequired)
+            {
+                // Sử dụng BeginInvoke để không làm treo luồng mạng khi UI bận
+                _logView.BeginInvoke(new Action(() => LogToUI(message)));
+            }
             else
             {
                 try
                 {
+                    // Giới hạn 100 dòng log để tránh tốn RAM
+                    if (_logView.Items.Count > 100) _logView.Items.RemoveAt(0);
+
                     ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), "SYSTEM", message });
                     item.ForeColor = Color.Blue;
                     _logView.Items.Add(item);
@@ -239,8 +235,9 @@ namespace RemoteDesktop.Server.Networking
 
         public void Stop()
         {
-            BroadcastPacket(new Packet { Type = CommandType.Disconnect, Data = Encoding.UTF8.GetBytes("Server Stop") });
             _isRunning = false;
+            BroadcastPacket(new Packet { Type = CommandType.Disconnect, Data = Encoding.UTF8.GetBytes("Server Stop") });
+            Thread.Sleep(500); // Đợi gói tin ngắt kết nối gửi đi
             try { _serverSocket.Close(); } catch { }
             _connectionGuard.ClearAll();
         }

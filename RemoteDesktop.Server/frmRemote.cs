@@ -31,21 +31,18 @@ namespace RemoteDesktop.Server
 
             _currentSessionID = "Session_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            // Đăng ký sự kiện
+            // Đăng ký sự kiện an toàn
             this._server.OnChatReceived += Server_OnChatReceived;
             this._server.OnFileReceived += Server_OnFileReceived;
             this._server.OnLogAdded += Server_OnLogAdded;
         }
 
-        // Tách hàm sự kiện ra để code gọn hơn
         private void Server_OnChatReceived(TcpClient sender, string message)
         {
             try
             {
                 string senderIP = ((IPEndPoint)sender.Client.RemoteEndPoint).Address.ToString();
-                // 1. Hiện lên khung chat
                 AppendChatHistory($"[{senderIP}]: {message}");
-                // 2. Lưu vào Log và DB
                 UpdateRemoteLog($"[{senderIP}] Chat: {message}");
             }
             catch { }
@@ -94,28 +91,29 @@ namespace RemoteDesktop.Server
                 {
                     try
                     {
-                        // 1. Chụp ảnh (đã được nén nhẹ ở ScreenCapturer.cs)
+                        // 1. Chụp ảnh màn hình (Sử dụng 'using' ẩn bên trong ScreenCapturer)
                         byte[] screenData = RemoteDesktop.Server.Services.ScreenCapturer.CaptureDesktop();
 
-                        if (screenData.Length > 0)
+                        if (screenData != null && screenData.Length > 0)
                         {
-                            // 2. Gửi cho Client
+                            // 2. Gửi cho tất cả Client (đã được tối ưu ThreadPool ở ServerHandler)
                             var packet = new Packet { Type = CommandType.ScreenUpdate, Data = screenData };
                             _server.BroadcastPacket(packet);
 
-                            // 3. Lưu DB định kỳ (mỗi 50 khung hình)
+                            // 3. Lưu DB định kỳ trên luồng riêng để tránh lag hình ảnh
                             frameCount++;
-                            if (frameCount % 50 == 0)
+                            if (frameCount % 60 == 0) // Lưu mỗi ~3 giây (tốc độ 20FPS)
                             {
-                                _dbManager.SaveScreenRecord(_currentSessionID, "SERVER", screenData);
+                                string sessionId = _currentSessionID;
+                                byte[] dataToSave = screenData;
+                                ThreadPool.QueueUserWorkItem(_ => _dbManager.SaveScreenRecord(sessionId, "SERVER", dataToSave));
                             }
                         }
 
-                        // [QUAN TRỌNG] Nghỉ 50ms (khoảng 20FPS)
-                        // Khoảng nghỉ này CỰC KỲ QUAN TRỌNG để Server có thời gian xử lý gói tin Chat
+                        // [QUAN TRỌNG NHẤT] Nghỉ 50ms để giải phóng CPU và xử lý các gói tin Input từ Client
                         Thread.Sleep(50);
                     }
-                    catch { }
+                    catch { Thread.Sleep(100); }
                 }
             });
             screenThread.IsBackground = true;
@@ -124,7 +122,7 @@ namespace RemoteDesktop.Server
 
         private void UpdateRemoteLog(string message)
         {
-            // Lưu log vào Database (DB Manager đã có Task.Run bên trong nên gọi trực tiếp ok)
+            // Tách IP và nội dung để lưu Log
             string ip = "SYSTEM";
             string content = message;
             if (message.StartsWith("[") && message.Contains("]"))
@@ -140,9 +138,11 @@ namespace RemoteDesktop.Server
                 }
                 catch { }
             }
+
+            // Lưu log vào Database qua luồng phụ
             _dbManager.SaveLog(_currentSessionID, ip, content);
 
-            // Hiện lên UI
+            // Cập nhật UI an toàn bằng BeginInvoke (Bất đồng bộ)
             if (lsvLog.InvokeRequired)
             {
                 lsvLog.BeginInvoke(new Action(() => UpdateRemoteLog(message)));
@@ -151,9 +151,12 @@ namespace RemoteDesktop.Server
             {
                 try
                 {
+                    // Giới hạn 50 dòng log để tránh tràn bộ nhớ giao diện
+                    if (lsvLog.Items.Count > 50) lsvLog.Items.RemoveAt(0);
+
                     ListViewItem item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), message });
                     lsvLog.Items.Add(item);
-                    if (lsvLog.Items.Count > 0) item.EnsureVisible();
+                    item.EnsureVisible();
                 }
                 catch { }
             }
@@ -166,16 +169,14 @@ namespace RemoteDesktop.Server
 
             try
             {
-                // Gửi Broadcast cho mọi người
                 var packet = new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes($"[SERVER]: {msg}") };
                 _server.BroadcastPacket(packet);
 
-                // Hiển thị và lưu log tại Server
                 AppendChatHistory($"[SERVER]: {msg}");
                 UpdateRemoteLog("[SERVER] Chat: " + msg);
                 txtChatInput.Clear();
             }
-            catch (Exception ex) { MessageBox.Show("Lỗi gửi: " + ex.Message); }
+            catch (Exception ex) { MessageBox.Show("Lỗi gửi chat: " + ex.Message); }
         }
 
         private void btnSendFile_Click(object sender, EventArgs e)
@@ -201,18 +202,26 @@ namespace RemoteDesktop.Server
 
         private void btnStopRemote_Click(object sender, EventArgs e)
         {
+            StopStreamingAndClose();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            StopStreamingAndClose();
+            base.OnFormClosing(e);
+        }
+
+        private void StopStreamingAndClose()
+        {
             _isStreaming = false;
 
-            // Hủy đăng ký sự kiện để tránh lỗi khi mở lại
+            // Hủy đăng ký sự kiện để tránh rò rỉ bộ nhớ
             this._server.OnChatReceived -= Server_OnChatReceived;
             this._server.OnFileReceived -= Server_OnFileReceived;
             this._server.OnLogAdded -= Server_OnLogAdded;
 
+            // Ngắt kết nối Server nếu cần
             if (_server != null) _server.Stop();
-
-            frmConnect connectForm = new frmConnect();
-            connectForm.Show();
-            this.Close();
         }
 
         private void AppendChatHistory(string text)
@@ -235,6 +244,8 @@ namespace RemoteDesktop.Server
                 {
                     string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileDto.FileName);
                     File.WriteAllBytes(path, fileDto.Buffer);
+
+                    // Mở thư mục Downloads và bôi đậm file vừa nhận
                     Process.Start("explorer.exe", $"/select,\"{path}\"");
                 }
             }
