@@ -53,7 +53,7 @@ namespace RemoteDesktop.Server.Networking
                 t.IsBackground = true;
                 t.Start();
 
-                LogToUI($"Server đang chạy trên cổng {port} (Admin Mode - Bypass DB)...");
+                LogToUI($"Server đang chạy trên cổng {port}!");
             }
             catch (Exception ex)
             {
@@ -72,7 +72,7 @@ namespace RemoteDesktop.Server.Networking
                     string ip = "UNKNOWN";
                     try { ip = ((IPEndPoint)clientSocket.RemoteEndPoint).Address.ToString(); } catch { }
 
-                    LogToUI($"Client {ip} đã kết nối Socket.");
+                    LogToUI($"Client [{ip}] đã kết nối Socket.");
 
                     clientSocket.Blocking = true;
                     TcpClient tcpClient = new TcpClient { Client = clientSocket };
@@ -132,7 +132,6 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        // --- ĐÂY LÀ HÀM QUAN TRỌNG NHẤT BẠN CẦN ---
         private void HandleLogin(Packet packet, TcpClient client)
         {
             var loginInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
@@ -164,8 +163,8 @@ namespace RemoteDesktop.Server.Networking
             {
                 // Tìm nguyên nhân để log ra màn hình Server cho dễ debug
                 string reason = "Lỗi không xác định";
-                if (!isValidFormat) reason = "Sai MK (123456) hoặc sai tên (phải là admin...)";
-                else if (isAlreadyOnline) reason = "Tài khoản đang Online";
+                if (!isValidFormat) reason = "Sai tên tài khoản hoặc mật khẩu";
+                else if (isAlreadyOnline) reason = "Tài khoản đang được sử dụng!";
 
                 Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes("FAIL") };
                 NetworkHelper.SendSecurePacket(client.GetStream(), response);
@@ -175,8 +174,7 @@ namespace RemoteDesktop.Server.Networking
 
         private void HandleRegister(Packet packet, TcpClient client)
         {
-            // Vẫn giữ logic đăng ký cũ để không bị lỗi code, nhưng thực tế ta không cần dùng tới nữa
-            // vì ta đã bypass login ở trên rồi.
+
             LoginDTO regInfo = DataHelper.Deserialize<LoginDTO>(packet.Data);
             if (regInfo != null && regInfo.Username.StartsWith("admin", StringComparison.OrdinalIgnoreCase))
             {
@@ -198,7 +196,7 @@ namespace RemoteDesktop.Server.Networking
             var input = DataHelper.Deserialize<InputDTO>(packet.Data);
             if (input == null) return;
 
-            // Xử lý chuột/phím trên luồng riêng để mượt mà
+            // Xử lý chuột/phím trên luồng riêng để chạy mượt
             ThreadPool.QueueUserWorkItem(_ => {
                 try
                 {
@@ -222,7 +220,7 @@ namespace RemoteDesktop.Server.Networking
         {
             string rawMsg = Encoding.UTF8.GetString(packet.Data);
             OnChatReceived?.Invoke(client, rawMsg);
-            // Gửi lại tin nhắn cho tất cả mọi người
+            // Gửi lại tin nhắn cho tất cả client
             BroadcastPacket(new Packet { Type = CommandType.Chat, Data = Encoding.UTF8.GetBytes($"[{ip}]: {rawMsg}") });
         }
 
