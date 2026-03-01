@@ -34,6 +34,8 @@
             btnStart = new Button();
             textPortNum = new NumericUpDown();
             label2 = new Label();
+            comboBoxSession = new ComboBox();
+            label1 = new Label();
             ((System.ComponentModel.ISupportInitialize)textPortNum).BeginInit();
             SuspendLayout();
             // 
@@ -89,11 +91,30 @@
             label2.Text = "Chọn Port";
             label2.TextAlign = ContentAlignment.TopCenter;
             // 
+            // comboBoxSession
+            // 
+            comboBoxSession.FormattingEnabled = true;
+            comboBoxSession.Location = new Point(-2, 187);
+            comboBoxSession.Name = "comboBoxSession";
+            comboBoxSession.Size = new Size(152, 28);
+            comboBoxSession.TabIndex = 5;
+            // 
+            // label1
+            // 
+            label1.AutoSize = true;
+            label1.Location = new Point(12, 158);
+            label1.Name = "label1";
+            label1.Size = new Size(84, 20);
+            label1.TabIndex = 6;
+            label1.Text = "Chọn phiên";
+            // 
             // frmConnect
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
+            Controls.Add(label1);
+            Controls.Add(comboBoxSession);
             Controls.Add(label2);
             Controls.Add(textPortNum);
             Controls.Add(btnStart);
@@ -114,5 +135,7 @@
         private Button btnStart;
         private NumericUpDown textPortNum;
         private Label label2;
+        private ComboBox comboBoxSession;
+        private Label label1;
     }
 }

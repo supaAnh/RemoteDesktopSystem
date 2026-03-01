@@ -262,5 +262,28 @@ namespace RemoteDesktop.Server.Database
             return null;
         }
 
+
+        // LẤY CHI TIẾT LOG THEO PHIÊN
+        public DataTable GetLogsBySession(string sessionID)
+        {
+            DataTable dt = new DataTable();
+            try
+            {
+                using (var conn = DatabaseConnect.GetConnection())
+                {
+                    conn.Open();
+                    // Lấy thời gian, IP và hành động từ bảng ServerLogs
+                    string query = "SELECT CreatedAt, IPAddress, Action FROM ServerLogs WHERE SessionID = @sid ORDER BY CreatedAt ASC";
+                    using (var cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@sid", sessionID);
+                        using (var adapter = new SqlDataAdapter(cmd)) adapter.Fill(dt);
+                    }
+                }
+            }
+            catch { }
+            return dt;
+        }
+
     }
 }
