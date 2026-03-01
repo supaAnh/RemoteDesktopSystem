@@ -1,7 +1,6 @@
 ﻿using RemoteDesktop.Server.Database;
 using System;
 using System.Data;
-using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
@@ -9,101 +8,115 @@ namespace RemoteDesktop.Server
 {
     public partial class frmHistory : Form
     {
-        // Chỉ cần khai báo DatabaseManager, các nút khác Designer đã lo rồi
         private DatabaseManager _db = new DatabaseManager();
+        private string _tempVideoPath; // Biến lưu đường dẫn file video tạm
 
         public frmHistory()
         {
             InitializeComponent();
-            SetupEvents();  // Cấu hình sự kiện
-            LoadSessions(); // Tải dữ liệu ngay khi mở form
+            SetupEvents();
+            LoadVideoList();
         }
 
-        // Cấu hình các thiết lập phụ mà kéo thả không làm được
         private void SetupEvents()
         {
-            // Cấu hình hiển thị cho ComboBox và ListBox
-            // Lưu ý: Tên biến cboSessions, listBox1, pictureBox1 phải khớp với tên bạn đặt trong Designer
-            cboSessions.DropDownStyle = ComboBoxStyle.DropDownList;
-
-            // Gán sự kiện khi chọn dòng
-            cboSessions.SelectedIndexChanged += CboSessions_SelectedIndexChanged;
-            listBox1.SelectedIndexChanged += ListBox1_SelectedIndexChanged;
-
-            // Cấu hình PictureBox
-            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
-            pictureBox1.BackColor = Color.Black;
+            // Thiết lập comboBoxRecord (trong Designer bạn đang đặt tên là comboBoxRecord)
+            comboBoxRecord.DropDownStyle = ComboBoxStyle.DropDownList;
+            comboBoxRecord.SelectedIndexChanged += ComboBoxRecord_SelectedIndexChanged;
         }
 
-        // 1. Tải danh sách các phiên vào ComboBox
-        private void LoadSessions()
+        // 1. Tải danh sách video từ Database lên ComboBox
+        private void LoadVideoList()
         {
             try
             {
-                DataTable dt = _db.GetSessionList();
-
+                DataTable dt = _db.GetVideoList();
                 if (dt.Rows.Count > 0)
                 {
-                    // Tạo cột hiển thị đẹp: "Giờ - IP"
-                    dt.Columns.Add("DisplaySession", typeof(string), "StartTime + '  (IP: ' + IP + ')'");
+                    // Tạo cột hiển thị: "Tên file (Thời gian)"
+                    dt.Columns.Add("DisplayRecord", typeof(string), "FileName + ' (' + CreatedAt + ')'");
 
-                    cboSessions.DataSource = dt;
-                    cboSessions.DisplayMember = "DisplaySession"; // Hiển thị tên
-                    cboSessions.ValueMember = "SessionID";       // Giá trị ngầm (ID)
+                    comboBoxRecord.DataSource = dt;
+                    comboBoxRecord.DisplayMember = "DisplayRecord"; // Text hiện ra
+                    comboBoxRecord.ValueMember = "Id";              // ID ẩn bên dưới
+                }
+                else
+                {
+                    comboBoxRecord.DataSource = null;
+                    comboBoxRecord.Items.Add("Chưa có bản record nào");
+                    comboBoxRecord.SelectedIndex = 0;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi tải danh sách: " + ex.Message);
+                MessageBox.Show("Lỗi tải danh sách video: " + ex.Message);
             }
         }
 
-        // 2. Sự kiện: Khi chọn 1 phiên ở ComboBox -> Tải danh sách ảnh vào ListBox
-        private void CboSessions_SelectedIndexChanged(object sender, EventArgs e)
+        // 2. Khi chọn 1 bản Record trên ComboBox
+        private void ComboBoxRecord_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (cboSessions.SelectedValue == null) return;
+            if (comboBoxRecord.SelectedValue == null) return;
 
-            // Lấy SessionID từ ComboBox (đã kéo thả)
-            string selectedSessionID = cboSessions.SelectedValue.ToString();
-
-            // Lấy danh sách ảnh từ DB
-            DataTable dt = _db.GetRecordsBySession(selectedSessionID);
-
-            // Đổ vào ListBox (đã kéo thả)
-            listBox1.DataSource = dt;
-            listBox1.DisplayMember = "CreatedAt";
-            listBox1.ValueMember = "Id";
-
-            // Xóa ảnh cũ đang hiện
-            if (pictureBox1.Image != null) pictureBox1.Image.Dispose();
-            pictureBox1.Image = null;
-        }
-
-        // 3. Sự kiện: Khi chọn 1 dòng giờ ở ListBox -> Hiện ảnh lên PictureBox
-        private void ListBox1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            if (listBox1.SelectedValue == null) return;
-
-            if (int.TryParse(listBox1.SelectedValue.ToString(), out int imageId))
+            // Lấy ID của video
+            if (int.TryParse(comboBoxRecord.SelectedValue.ToString(), out int videoId))
             {
-                byte[] imgBytes = _db.GetRecordImage(imageId);
+                // Dừng video cũ nếu đang phát
+                axWindowsMediaPlayer1.Ctlcontrols.stop();
 
-                if (imgBytes != null && imgBytes.Length > 0)
+                // Lấy byte[] video từ Database
+                byte[] videoBytes = _db.GetVideoData(videoId);
+
+                if (videoBytes != null && videoBytes.Length > 0)
                 {
                     try
                     {
-                        using (MemoryStream ms = new MemoryStream(imgBytes))
+                        // Tạo đường dẫn file tạm trong thư mục Temp của Windows
+                        _tempVideoPath = Path.Combine(Path.GetTempPath(), $"temp_record_{videoId}.avi");
+
+                        // Chỉ ghi file ra nếu nó chưa tồn tại để tiết kiệm thời gian
+                        if (!File.Exists(_tempVideoPath))
                         {
-                            // Hiển thị lên PictureBox (đã kéo thả)
-                            pictureBox1.Image = new Bitmap(ms);
+                            File.WriteAllBytes(_tempVideoPath, videoBytes);
                         }
+
+                        // Gắn URL cho Media Player và phát
+                        axWindowsMediaPlayer1.URL = _tempVideoPath;
+                        axWindowsMediaPlayer1.Ctlcontrols.play();
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Lỗi giải mã file video: " + ex.Message);
+                    }
+                }
+                else
+                {
+                    MessageBox.Show("Bản ghi này bị lỗi hoặc không có dữ liệu hình ảnh.");
                 }
             }
         }
 
-        // Các hàm thừa do lỡ click đúp trong Designer (để trống để tránh lỗi)
+        // 3. Dọn dẹp RAM và file rác khi tắt Form
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            try
+            {
+                // Dừng Media Player
+                axWindowsMediaPlayer1.Ctlcontrols.stop();
+                axWindowsMediaPlayer1.close();
+
+                // Cố gắng xóa file tạm (Nên bao trong try-catch vì WMP có thể chưa nhả file ra ngay lập tức)
+                if (!string.IsNullOrEmpty(_tempVideoPath) && File.Exists(_tempVideoPath))
+                {
+                    File.Delete(_tempVideoPath);
+                }
+            }
+            catch { }
+
+            base.OnFormClosing(e);
+        }
+
+        // Giữ lại các hàm rỗng này nếu Designer đang trỏ event vào chúng
         private void frmHistory_Load(object sender, EventArgs e) { }
         private void label1_Click(object sender, EventArgs e) { }
     }

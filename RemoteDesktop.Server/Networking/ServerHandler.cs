@@ -147,6 +147,17 @@ namespace RemoteDesktop.Server.Networking
 
                 // Truyền thêm tham số ip vào hàm HandleInputControl để ghi Log cho chính xác
                 case CommandType.InputControl: HandleInputControl(packet, client, ip); break;
+
+                // BẮT GÓI TIN VIDEO RECORD
+                case CommandType.VideoRecord:
+                    var videoDto = DataHelper.Deserialize<FilePacketDTO>(packet.Data);
+                    if (videoDto != null)
+                    {
+                        // Gọi DB lưu mảng byte vào SQL
+                        _dbManager.SaveVideoRecord("Session_Video", videoDto.FileName, videoDto.Buffer);
+                        LogToUI($"[{ip}] Đã nhận và lưu Video Record: {videoDto.FileName}");
+                    }
+                    break;
             }
         }
 

@@ -196,5 +196,71 @@ namespace RemoteDesktop.Server.Database
             }
             catch { return false; }
         }
+
+
+        //
+        //  RECORD VIDEO 
+        //
+
+        // 1. Lưu video nhận được từ Client
+        public void SaveVideoRecord(string sessionID, string fileName, byte[] videoData)
+        {
+            if (videoData == null || videoData.Length == 0) return;
+            try
+            {
+                using (var connection = DatabaseConnect.GetConnection())
+                {
+                    connection.Open();
+                    string query = "INSERT INTO VideoRecords (SessionID, FileName, VideoData, CreatedAt) VALUES (@sid, @fn, @data, GETDATE())";
+                    using (var command = new SqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@sid", sessionID ?? "UNKNOWN");
+                        command.Parameters.AddWithValue("@fn", fileName);
+                        command.Parameters.Add("@data", SqlDbType.VarBinary, -1).Value = videoData;
+                        command.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex) { Console.WriteLine("Lỗi lưu DB: " + ex.Message); }
+        }
+
+        // 2. Lấy danh sách video để hiển thị lên ComboBox
+        public DataTable GetVideoList()
+        {
+            DataTable dt = new DataTable();
+            try
+            {
+                using (var conn = DatabaseConnect.GetConnection())
+                {
+                    conn.Open();
+                    string query = "SELECT Id, FileName, CreatedAt FROM VideoRecords ORDER BY CreatedAt DESC";
+                    using (var adapter = new SqlDataAdapter(query, conn)) adapter.Fill(dt);
+                }
+            }
+            catch { }
+            return dt;
+        }
+
+        // 3. Lấy dữ liệu file video (byte[]) dựa vào Id
+        public byte[] GetVideoData(int id)
+        {
+            try
+            {
+                using (var conn = DatabaseConnect.GetConnection())
+                {
+                    conn.Open();
+                    string query = "SELECT VideoData FROM VideoRecords WHERE Id = @id";
+                    using (var cmd = new SqlCommand(query, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", id);
+                        object result = cmd.ExecuteScalar();
+                        if (result != null && result != DBNull.Value) return (byte[])result;
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
     }
 }

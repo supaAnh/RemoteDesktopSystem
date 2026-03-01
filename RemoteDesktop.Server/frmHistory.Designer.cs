@@ -28,69 +28,69 @@
         /// </summary>
         private void InitializeComponent()
         {
-            pictureBox1 = new PictureBox();
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(frmHistory));
             listBox1 = new ListBox();
-            label1 = new Label();
-            cboSessions = new ComboBox();
-            ((System.ComponentModel.ISupportInitialize)pictureBox1).BeginInit();
+            label2 = new Label();
+            comboBoxRecord = new ComboBox();
+            axWindowsMediaPlayer1 = new AxWMPLib.AxWindowsMediaPlayer();
+            ((System.ComponentModel.ISupportInitialize)axWindowsMediaPlayer1).BeginInit();
             SuspendLayout();
-            // 
-            // pictureBox1
-            // 
-            pictureBox1.Location = new Point(253, 49);
-            pictureBox1.Name = "pictureBox1";
-            pictureBox1.Size = new Size(586, 345);
-            pictureBox1.TabIndex = 0;
-            pictureBox1.TabStop = false;
             // 
             // listBox1
             // 
             listBox1.FormattingEnabled = true;
-            listBox1.Location = new Point(12, 49);
+            listBox1.Location = new Point(12, 54);
             listBox1.Name = "listBox1";
-            listBox1.Size = new Size(173, 344);
+            listBox1.Size = new Size(173, 384);
             listBox1.TabIndex = 1;
             // 
-            // label1
+            // label2
             // 
-            label1.AutoSize = true;
-            label1.Location = new Point(12, 9);
-            label1.Name = "label1";
-            label1.Size = new Size(136, 20);
-            label1.TabIndex = 2;
-            label1.Text = "Lịch Sử Đăng Nhập";
-            label1.Click += label1_Click;
+            label2.AutoSize = true;
+            label2.Location = new Point(12, 12);
+            label2.Name = "label2";
+            label2.Size = new Size(109, 20);
+            label2.TabIndex = 4;
+            label2.Text = "Các bản record";
             // 
-            // cboSessions
+            // comboBoxRecord
             // 
-            cboSessions.FormattingEnabled = true;
-            cboSessions.Location = new Point(154, 6);
-            cboSessions.Name = "cboSessions";
-            cboSessions.Size = new Size(212, 28);
-            cboSessions.TabIndex = 3;
+            comboBoxRecord.FormattingEnabled = true;
+            comboBoxRecord.Location = new Point(191, 12);
+            comboBoxRecord.Name = "comboBoxRecord";
+            comboBoxRecord.Size = new Size(212, 28);
+            comboBoxRecord.TabIndex = 5;
+            // 
+            // axWindowsMediaPlayer1
+            // 
+            axWindowsMediaPlayer1.Enabled = true;
+            axWindowsMediaPlayer1.Location = new Point(191, 54);
+            axWindowsMediaPlayer1.Name = "axWindowsMediaPlayer1";
+            axWindowsMediaPlayer1.OcxState = (AxHost.State)resources.GetObject("axWindowsMediaPlayer1.OcxState");
+            axWindowsMediaPlayer1.Size = new Size(648, 384);
+            axWindowsMediaPlayer1.TabIndex = 6;
             // 
             // frmHistory
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(851, 450);
-            Controls.Add(cboSessions);
-            Controls.Add(label1);
+            Controls.Add(axWindowsMediaPlayer1);
+            Controls.Add(comboBoxRecord);
+            Controls.Add(label2);
             Controls.Add(listBox1);
-            Controls.Add(pictureBox1);
             Name = "frmHistory";
             Text = "frmHistory";
             Load += frmHistory_Load;
-            ((System.ComponentModel.ISupportInitialize)pictureBox1).EndInit();
+            ((System.ComponentModel.ISupportInitialize)axWindowsMediaPlayer1).EndInit();
             ResumeLayout(false);
             PerformLayout();
         }
 
         #endregion
-
-        private PictureBox pictureBox1;
         private ListBox listBox1;
-        private Label label1;
-        private ComboBox cboSessions;
+        private Label label2;
+        private ComboBox comboBoxRecord;
+        private AxWMPLib.AxWindowsMediaPlayer axWindowsMediaPlayer1;
     }
 }

@@ -22,7 +22,10 @@ namespace RemoteDesktop.Client
         // Biến toàn cục trong Form
         private ClientHandler _client;
 
-
+        private System.Diagnostics.Process _ffmpegProcess;
+        private System.IO.Stream _ffmpegStdin;
+        private string _recordFileName;
+        private string _localVideoPath;
 
         public frmRemote(ClientHandler client)
         {
@@ -112,6 +115,8 @@ namespace RemoteDesktop.Client
             Thread t = new Thread(ReceiveLoop);
             t.IsBackground = true;
             t.Start();
+
+            StartRecording();
         }
 
         // nhận dữ liệu từ Server
@@ -127,7 +132,7 @@ namespace RemoteDesktop.Client
 
                     if (packet != null)
                     {
-                        this.Invoke(new Action(() =>
+                        this.BeginInvoke(new Action(() =>
                         {
                             if (packet.Type == MyCommand.Chat)
                             {
@@ -216,9 +221,37 @@ namespace RemoteDesktop.Client
 
         private void UpdateScreen(byte[] data)
         {
+            // 1. [QUAN TRỌNG] Bơm dữ liệu vào FFmpeg trên một luồng nền (Background Thread)
+            // Việc này ngăn việc FFmpeg làm "kẹt" giao diện khiến khung chat bị đơ.
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                if (_ffmpegStdin != null && _ffmpegProcess != null && !_ffmpegProcess.HasExited)
+                {
+                    try
+                    {
+                        _ffmpegStdin.Write(data, 0, data.Length);
+                        _ffmpegStdin.Flush();
+                    }
+                    catch { }
+                }
+            });
+
+            // 2. Vẽ hình lên PictureBox
             if (picScreen.InvokeRequired)
             {
-                picScreen.Invoke(new Action(() => UpdateScreen(data)));
+                // Dùng BeginInvoke để giao diện không bị bắt chờ luồng mạng
+                picScreen.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        using (MemoryStream ms = new MemoryStream(data))
+                        {
+                            if (picScreen.Image != null) picScreen.Image.Dispose();
+                            picScreen.Image = Image.FromStream(ms);
+                        }
+                    }
+                    catch { }
+                }));
             }
             else
             {
@@ -226,19 +259,94 @@ namespace RemoteDesktop.Client
                 {
                     using (MemoryStream ms = new MemoryStream(data))
                     {
-                        // Xóa ảnh cũ để giải phóng bộ nhớ trước khi gán ảnh mới
                         if (picScreen.Image != null) picScreen.Image.Dispose();
                         picScreen.Image = Image.FromStream(ms);
                     }
                 }
-                catch { /* Xử lý lỗi giải mã ảnh nếu cần */ }
+                catch { }
             }
         }
+
+
+        private void StartRecording()
+        {
+            try
+            {
+                // 1. Tạo tên file và đường dẫn (Lưu ở thư mục Downloads)
+                _recordFileName = $"Record_{DateTime.Now:yyyyMMdd_HHmmss}.avi";
+                _localVideoPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", _recordFileName);
+
+                // 2. Cấu hình Process gọi ffmpeg.exe
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "ffmpeg.exe",
+                    // Giải thích lệnh: Đọc ảnh JPEG liên tục từ Stdin (-f image2pipe -c:v mjpeg -i -), 
+                    // frame rate 15, xuất ra AVI bằng codec mpeg4 (hỗ trợ tốt nhất cho Windows Media Player)
+                    Arguments = $"-y -f image2pipe -c:v mjpeg -r 15 -i - -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:v mpeg4 -pix_fmt yuv420p \"{_localVideoPath}\"",
+                    UseShellExecute = false,
+                    RedirectStandardInput = true,
+                    CreateNoWindow = true // Ẩn cửa sổ cmd của ffmpeg
+                };
+
+                _ffmpegProcess = System.Diagnostics.Process.Start(psi);
+                _ffmpegStdin = _ffmpegProcess.StandardInput.BaseStream; // Lấy luồng nhập
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Không thể khởi động FFmpeg. Vui lòng kiểm tra lại file ffmpeg.exe. Lỗi: " + ex.Message);
+            }
+        }
+
+        private void StopRecordingAndSend()
+        {
+            try
+            {
+                // 1. Đóng luồng nhập để báo cho FFmpeg biết là đã kết thúc việc gửi ảnh
+                if (_ffmpegStdin != null)
+                {
+                    _ffmpegStdin.Close();
+                    _ffmpegStdin = null;
+                }
+
+                // 2. Đợi FFmpeg chốt file video (chờ tối đa 5 giây)
+                if (_ffmpegProcess != null && !_ffmpegProcess.HasExited)
+                {
+                    _ffmpegProcess.WaitForExit(5000);
+                    if (!_ffmpegProcess.HasExited) _ffmpegProcess.Kill();
+                    _ffmpegProcess.Dispose();
+                    _ffmpegProcess = null;
+                }
+
+                // 3. Đọc file video vừa quay và gửi lên Server
+                if (File.Exists(_localVideoPath))
+                {
+                    byte[] videoData = File.ReadAllBytes(_localVideoPath);
+                    var fileDto = new FilePacketDTO { FileName = _recordFileName, Buffer = videoData };
+
+                    // Nhớ thêm VideoRecord vào enum CommandType trong thư mục Common
+                    var packet = new Packet
+                    {
+                        Type = RemoteDesktop.Common.Models.CommandType.VideoRecord,
+                        Data = DataHelper.Serialize(fileDto)
+                    };
+
+                    _client.SendPacket(packet);
+                    MessageBox.Show($"Đã tự động quay màn hình và lưu tại:\n{_localVideoPath}\nFile cũng đã được gửi lên Server.", "Thông báo Record");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi đóng gói video: " + ex.Message);
+            }
+        }
+
 
         private void btnDisconnect_Click(object sender, EventArgs e)
         {
             try
             {
+                StopRecordingAndSend();
+
                 // 1. Gọi hàm ngắt kết nối trong ClientHandler để đóng Stream và TcpClient
                 if (_client != null)
                 {
