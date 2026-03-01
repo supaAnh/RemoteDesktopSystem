@@ -13,7 +13,7 @@ namespace RemoteDesktop.Server.Database
             {
                 return new SqlConnection(_connectionString);
             }
-            catch (Exception ex)
+            catch (Exception ex)    
             {
                 Console.WriteLine("Lỗi tạo kết nối: " + ex.Message);
                 return null;

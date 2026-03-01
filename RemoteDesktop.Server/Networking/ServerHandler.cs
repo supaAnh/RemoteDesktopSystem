@@ -20,13 +20,26 @@ namespace RemoteDesktop.Server.Networking
         private bool _isRunning;
         private ListView _logView;
 
+        // Sự kiện khi có log mới, giúp Form Remote biết để hiển thị vào lịch sử log
         public event Action<string>? OnLogAdded;
+
+        // Sự kiện khi nhận được tin nhắn chat từ client, giúp Form Remote biết để hiển thị vào lịch sử chat
         public delegate void ChatReceivedHandler(TcpClient sender, string message);
         public event ChatReceivedHandler? OnChatReceived;
+
+
+        // Sự kiện khi có client mới kết nối thành công, giúp Form Remote biết để hiển thị thông tin và chuẩn bị cho việc điều khiển nếu cần
         public delegate void ClientConnectedHandler(TcpClient client);
         public event ClientConnectedHandler? OnClientConnected;
+
+        // Sự kiện khi nhận được file từ client, giúp Form Remote biết để hiển thị thông báo và lưu vào thư mục tạm nếu cần
         public delegate void FileReceivedHandler(TcpClient sender, byte[] data);
         public event FileReceivedHandler? OnFileReceived;
+
+        // Sự kiện khi client ngắt kết nối, giúp Form Remote biết để tự đóng lại nếu đang mở với client đó
+        public delegate void ClientDisconnectedHandler(TcpClient client);
+        public event ClientDisconnectedHandler? OnClientDisconnected;
+
 
         // Giữ lại DatabaseManager để dùng cho Register (nếu cần), nhưng Login sẽ không dùng tới nó nữa
         private Database.DatabaseManager _dbManager = new Database.DatabaseManager();
@@ -116,6 +129,9 @@ namespace RemoteDesktop.Server.Networking
                 _connectionGuard.RemoveClient(client);
                 try { client.Close(); } catch { }
                 LogToUI($"[{clientIP}] Đã ngắt kết nối.");
+
+                // Kích hoạt báo hiệu Client đã ngắt kết nối về cho Form
+                OnClientDisconnected?.Invoke(client);
             }
         }
 
@@ -128,7 +144,9 @@ namespace RemoteDesktop.Server.Networking
                 case CommandType.Chat: HandleChatRequest(packet, client, ip); break;
                 case CommandType.FileTransfer: HandleFileTransfer(packet, client, ip); break;
                 case CommandType.Disconnect: client.Close(); break;
-                case CommandType.InputControl: HandleInputControl(packet, client); break;
+
+                // Truyền thêm tham số ip vào hàm HandleInputControl để ghi Log cho chính xác
+                case CommandType.InputControl: HandleInputControl(packet, client, ip); break;
             }
         }
 
@@ -188,13 +206,32 @@ namespace RemoteDesktop.Server.Networking
             }
         }
 
-        private void HandleInputControl(Packet packet, TcpClient sender)
+        private void HandleInputControl(Packet packet, TcpClient sender, string ip)
         {
             // Chỉ cho phép điều khiển nếu đã đăng nhập (nằm trong Guard)
             if (!_connectionGuard.IsController(sender)) return;
 
             var input = DataHelper.Deserialize<InputDTO>(packet.Data);
             if (input == null) return;
+
+            // --- THÊM PHẦN GHI LOG CLICK CHUỘT ---
+            // Kiểm tra Type == 0 (Là chuột) và Action > 0 (Khác 0 là đang có hành động click)
+            if (input.Type == 0 && input.Action > 0)
+            {
+                string actionDesc = "";
+                switch (input.Action)
+                {
+                    case 1: actionDesc = "Left Click (Down)"; break;
+                    case 2: actionDesc = "Left Click (Up)"; break;
+                    case 3: actionDesc = "Right Click (Down)"; break;
+                    case 4: actionDesc = "Right Click (Up)"; break;
+                    default: actionDesc = $"Click Action {input.Action}"; break;
+                }
+
+                // Ghi Log lên UI. Form Remote của Server sẽ tự động tách IP ra và lưu vào DB kèm lsvLog
+                // input.X và input.Y đang ở tỷ lệ phần nghìn, chia 10.0 để ra phần trăm (%)
+                LogToUI($"[{ip}] Sự kiện chuột: {actionDesc} tại tọa độ ({input.X / 10.0}%, {input.Y / 10.0}%)");
+            }
 
             // Xử lý chuột/phím trên luồng riêng để chạy mượt
             ThreadPool.QueueUserWorkItem(_ => {
@@ -273,6 +310,25 @@ namespace RemoteDesktop.Server.Networking
                 catch { }
             }
         }
+
+
+        // Đếm số Client đang online
+        public int GetClientCount()
+        {
+            return _connectionGuard.GetConnectedClients().Count;
+        }
+
+        // Kích tất cả Client nhưng Server vẫn giữ Port lắng nghe
+        public void DisconnectAllClients()
+        {
+            BroadcastPacket(new Packet { Type = CommandType.Disconnect, Data = Encoding.UTF8.GetBytes("Server Kick") });
+            Thread.Sleep(500); // Đợi Client nhận được thông báo trước khi đóng
+            _connectionGuard.ClearAll();
+        }
+
+
+
+
 
         public void Stop()
         {

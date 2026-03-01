@@ -178,24 +178,17 @@ namespace RemoteDesktop.Client
             }
         }
         // Xử lý khi server ngắt kết nối
+        // Cập nhật hàm xử lý khi Server chủ động ngắt kết nối
         private void HandleServerDisconnect()
         {
-            // Hiển thị thông báo xác nhận
-            DialogResult result = MessageBox.Show(
-                "Server đã ngắt kết nối hoặc ngừng hoạt động. Bạn có muốn thoát không?",
-                "Thông báo",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Information);
+            // Do hàm này chạy ở luồng mạng (background thread), ta cần dùng Invoke để hiện UI an toàn
+            this.Invoke(new Action(() => {
+                MessageBox.Show("Máy chủ đã ngắt kết nối. Chương trình sẽ tự động đóng.",
+                                "Thông báo ngắt kết nối", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-            if (result == DialogResult.Yes)
-            {
-                // Thực hiện ngắt kết nối và quay về màn hình chính
                 if (_client != null) _client.Disconnect();
-
-                frmConnect connectForm = new frmConnect();
-                connectForm.Show();
-                this.Close();
-            }
+                Environment.Exit(0); // Đóng hoàn toàn chương trình Client
+            }));
         }
 
         private void HandleIncomingFile(byte[] rawData)

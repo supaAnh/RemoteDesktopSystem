@@ -35,6 +35,10 @@ namespace RemoteDesktop.Server
             this._server.OnChatReceived += Server_OnChatReceived;
             this._server.OnFileReceived += Server_OnFileReceived;
             this._server.OnLogAdded += Server_OnLogAdded;
+
+
+
+            this._server.OnClientDisconnected += Server_OnClientDisconnected;
         }
 
         private void Server_OnChatReceived(TcpClient sender, string message)
@@ -46,6 +50,19 @@ namespace RemoteDesktop.Server
                 UpdateRemoteLog($"[{senderIP}] Chat: {message}");
             }
             catch { }
+        }
+
+
+        private void Server_OnClientDisconnected(TcpClient client)
+        {
+            // Nếu không còn client nào, tự động đóng cửa sổ Remote (chạy vào OnFormClosing)
+            if (_server.GetClientCount() == 0)
+            {
+                if (this.InvokeRequired)
+                    this.BeginInvoke(new Action(() => this.Close()));
+                else
+                    this.Close();
+            }
         }
 
         private void Server_OnFileReceived(TcpClient sender, byte[] data)
@@ -202,27 +219,32 @@ namespace RemoteDesktop.Server
 
         private void btnStopRemote_Click(object sender, EventArgs e)
         {
-            StopStreamingAndClose();
+            this.Close();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            StopStreamingAndClose();
-            base.OnFormClosing(e);
-        }
-
-        private void StopStreamingAndClose()
-        {
             _isStreaming = false;
 
-            // Hủy đăng ký sự kiện để tránh rò rỉ bộ nhớ
+            // Hủy đăng ký các sự kiện để tránh lỗi rò rỉ bộ nhớ
             this._server.OnChatReceived -= Server_OnChatReceived;
             this._server.OnFileReceived -= Server_OnFileReceived;
             this._server.OnLogAdded -= Server_OnLogAdded;
+            this._server.OnClientDisconnected -= Server_OnClientDisconnected;
 
-            // Ngắt kết nối Server nếu cần
-            if (_server != null) _server.Stop();
+            // Kích tất cả Client nhưng không gọi _server.Stop() (để giữ nguyên Port)
+            _server.DisconnectAllClients();
+
+            // Hiển thị lại Form Connect đã bị ẩn từ trước
+            var connectForm = Application.OpenForms["frmConnect"];
+            if (connectForm != null)
+            {
+                connectForm.Show();
+            }
+
+            base.OnFormClosing(e);
         }
+
 
         private void AppendChatHistory(string text)
         {
