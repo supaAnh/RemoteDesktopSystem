@@ -36,6 +36,7 @@
             label2 = new Label();
             comboBoxSession = new ComboBox();
             label1 = new Label();
+            btnHistory = new Button();
             ((System.ComponentModel.ISupportInitialize)textPortNum).BeginInit();
             SuspendLayout();
             // 
@@ -108,11 +109,20 @@
             label1.TabIndex = 6;
             label1.Text = "Chọn phiên";
             // 
+            // btnHistory
+            // 
+            btnHistory.Location = new Point(12, 12);
+            btnHistory.Name = "btnHistory";
+            btnHistory.Size = new Size(117, 37);
+            btnHistory.TabIndex = 0;
+            btnHistory.Text = "Xem lại record";
+            // 
             // frmConnect
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
+            Controls.Add(btnHistory);
             Controls.Add(label1);
             Controls.Add(comboBoxSession);
             Controls.Add(label2);
@@ -137,5 +147,6 @@
         private Label label2;
         private ComboBox comboBoxSession;
         private Label label1;
+        private Button btnHistory;
     }
 }

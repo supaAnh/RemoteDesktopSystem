@@ -140,9 +140,11 @@ namespace RemoteDesktop.Server
                     _server = new ServerHandler(hiddenLogView);
 
                     // Lắng nghe sự kiện Log để tự lưu và quản lý hiển thị
-                    _server.OnLogAdded += (msg) => {
+                    _server.OnLogAdded += (msg) =>
+                    {
                         if (this.IsDisposed) return;
-                        this.Invoke(new Action(() => {
+                        this.Invoke(new Action(() =>
+                        {
                             var item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), "SYSTEM", msg });
                             item.ForeColor = Color.Blue;
 
@@ -159,8 +161,10 @@ namespace RemoteDesktop.Server
                     };
                 }
 
-                _server.OnClientConnected += (client) => {
-                    this.Invoke(new Action(() => {
+                _server.OnClientConnected += (client) =>
+                {
+                    this.Invoke(new Action(() =>
+                    {
                         if (_currentRemoteForm == null || _currentRemoteForm.IsDisposed)
                         {
                             this.Hide();
@@ -202,5 +206,7 @@ namespace RemoteDesktop.Server
 
         // Sự kiện trống mặc định của Designer
         private void lsvLog_SelectedIndexChanged(object sender, EventArgs e) { }
+
+        
     }
 }
