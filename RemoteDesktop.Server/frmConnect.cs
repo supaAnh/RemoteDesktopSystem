@@ -207,10 +207,5 @@ namespace RemoteDesktop.Server
         // Sự kiện trống mặc định của Designer
         private void lsvLog_SelectedIndexChanged(object sender, EventArgs e) { }
 
-        private void btnHistory_Click_1(object sender, EventArgs e)
-        {
-            frmHistory historyForm = new frmHistory();
-            historyForm.ShowDialog();
-        }
     }
 }

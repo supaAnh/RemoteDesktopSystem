@@ -117,7 +117,7 @@
             btnHistory.TabIndex = 7;
             btnHistory.Text = "Xem lại";
             btnHistory.UseVisualStyleBackColor = true;
-            btnHistory.Click += btnHistory_Click_1;
+            btnHistory.Click += btnHistory_Click;
             // 
             // frmConnect
             // 
