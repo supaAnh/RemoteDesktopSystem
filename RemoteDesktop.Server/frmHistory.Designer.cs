@@ -29,20 +29,11 @@
         private void InitializeComponent()
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(frmHistory));
-            listBox1 = new ListBox();
             label2 = new Label();
             comboBoxRecord = new ComboBox();
             axWindowsMediaPlayer1 = new AxWMPLib.AxWindowsMediaPlayer();
             ((System.ComponentModel.ISupportInitialize)axWindowsMediaPlayer1).BeginInit();
             SuspendLayout();
-            // 
-            // listBox1
-            // 
-            listBox1.FormattingEnabled = true;
-            listBox1.Location = new Point(12, 54);
-            listBox1.Name = "listBox1";
-            listBox1.Size = new Size(173, 384);
-            listBox1.TabIndex = 1;
             // 
             // label2
             // 
@@ -64,21 +55,20 @@
             // axWindowsMediaPlayer1
             // 
             axWindowsMediaPlayer1.Enabled = true;
-            axWindowsMediaPlayer1.Location = new Point(191, 54);
+            axWindowsMediaPlayer1.Location = new Point(12, 54);
             axWindowsMediaPlayer1.Name = "axWindowsMediaPlayer1";
             axWindowsMediaPlayer1.OcxState = (AxHost.State)resources.GetObject("axWindowsMediaPlayer1.OcxState");
-            axWindowsMediaPlayer1.Size = new Size(648, 384);
+            axWindowsMediaPlayer1.Size = new Size(827, 456);
             axWindowsMediaPlayer1.TabIndex = 6;
             // 
             // frmHistory
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(851, 450);
+            ClientSize = new Size(851, 522);
             Controls.Add(axWindowsMediaPlayer1);
             Controls.Add(comboBoxRecord);
             Controls.Add(label2);
-            Controls.Add(listBox1);
             Name = "frmHistory";
             Text = "frmHistory";
             Load += frmHistory_Load;
@@ -88,7 +78,6 @@
         }
 
         #endregion
-        private ListBox listBox1;
         private Label label2;
         private ComboBox comboBoxRecord;
         private AxWMPLib.AxWindowsMediaPlayer axWindowsMediaPlayer1;

@@ -116,6 +116,7 @@
             btnHistory.Size = new Size(117, 37);
             btnHistory.TabIndex = 0;
             btnHistory.Text = "Xem lại record";
+            btnHistory.Click += btnHistory_Click;
             // 
             // frmConnect
             // 
