@@ -169,16 +169,14 @@ namespace RemoteDesktop.Server.Networking
             string username = loginInfo.Username;
             string password = loginInfo.Password;
 
-            // 1. Logic kiểm tra cứng: Mật khẩu 123456 và Tên bắt đầu bằng "admin"
-            // StringComparison.OrdinalIgnoreCase giúp admin1 và Admin1 đều được chấp nhận
-            bool isValidFormat = (password == "123456" &&
-                                  !string.IsNullOrEmpty(username) &&
-                                  username.StartsWith("admin", StringComparison.OrdinalIgnoreCase));
+            // 1. XÁC THỰC 100% BẰNG DATABASE
+            // Gọi thẳng vào hàm ValidateUser, nó sẽ kiểm tra Username, Password và Status = 1
+            bool isValidFormat = _dbManager.ValidateUser(username, password);
 
-            // 2. Kiểm tra xem tên này có đang Online không
+            // 2. Kiểm tra xem tài khoản này có đang Online hay không (chống đăng nhập trùng)
             bool isAlreadyOnline = _connectionGuard.IsUsernameOnline(username);
 
-            // LOGIC: Đúng định dạng + Chưa online = CHO VÀO (Không cần hỏi Database)
+            // LOGIC: Đăng nhập đúng thông tin trong DB + Chưa online = CHO VÀO
             if (isValidFormat && !isAlreadyOnline)
             {
                 _connectionGuard.AddClient(client, username);
@@ -186,14 +184,16 @@ namespace RemoteDesktop.Server.Networking
 
                 Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes("SUCCESS") };
                 NetworkHelper.SendSecurePacket(client.GetStream(), response);
-                LogToUI($"Client [{username}] đăng nhập thành công.");
+                LogToUI($"Client [{username}] đăng nhập thành công qua Database.");
             }
             else
             {
-                // Tìm nguyên nhân để log ra màn hình Server cho dễ debug
+                // Phân loại lỗi để ghi Log hiển thị lên màn hình Server cho dễ quản lý
                 string reason = "Lỗi không xác định";
-                if (!isValidFormat) reason = "Sai tên tài khoản hoặc mật khẩu";
-                else if (isAlreadyOnline) reason = "Tài khoản đang được sử dụng!";
+                if (!isValidFormat)
+                    reason = "Sai tài khoản, mật khẩu hoặc tài khoản chưa được duyệt (Status = 0)";
+                else if (isAlreadyOnline)
+                    reason = "Tài khoản đang được đăng nhập ở một nơi khác!";
 
                 Packet response = new Packet { Type = CommandType.Login, Data = Encoding.UTF8.GetBytes("FAIL") };
                 NetworkHelper.SendSecurePacket(client.GetStream(), response);
